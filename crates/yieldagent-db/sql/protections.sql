@@ -15,10 +15,10 @@ WITH expected_triggers (tbl, name, digest) AS (
     VALUES ('account_events', 'account_events_append_only', 'bd4b64bf88a43d91c8f0229e240a55e1'),
            ('account_events', 'account_events_no_truncate', '91d454c7d8890d590a6e8305d980409e'),
            ('account_events', 'account_events_stamp', '0558d12b98ccd7beaf941f03835399de'),
-           ('market_rounds', 'market_rounds_append_only', 'TBD'),
-           ('market_rounds', 'market_rounds_no_truncate', 'TBD'),
-           ('market_snapshots', 'market_snapshots_append_only', 'TBD'),
-           ('market_snapshots', 'market_snapshots_no_truncate', 'TBD')
+           ('market_rounds', 'market_rounds_append_only', '26d25aacd72b03a7d45cc85da48273a3'),
+           ('market_rounds', 'market_rounds_no_truncate', '610ccb9a21c99ed3005cf3b30d244983'),
+           ('market_snapshots', 'market_snapshots_append_only', 'f3468517477d48949061ab52bfdce7c5'),
+           ('market_snapshots', 'market_snapshots_no_truncate', 'a8a64393a0e341d6d8e0441de5f97cce')
 ), expected_functions (name, digest) AS (
     -- The whole definition, body and settings included.
     VALUES ('refuse_change', 'aa7b64a277372e0a3e2126f016e3a79d'),
