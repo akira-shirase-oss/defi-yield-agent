@@ -1,0 +1,39 @@
+[package]
+name = "yieldagent-server"
+description = "The service skeleton: configuration, the health contract, wiring, and yieldagentctl."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "yieldagent-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "yieldagentctl"
+path = "src/bin/yieldagentctl.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+yieldagent-accounts.workspace = true
+yieldagent-db.workspace = true
+yieldagent-http.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+yieldagent-db = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["process"] }
+tower.workspace = true
+
+[lints]
+workspace = true
