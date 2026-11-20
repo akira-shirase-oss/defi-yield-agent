@@ -3,7 +3,7 @@
 use std::str::FromStr;
 
 use yieldagent_data::Decimal;
-use yieldagent_data::defillama::{BodyError, MAX_ENTRIES, parse};
+use yieldagent_data::defillama::{BodyError, parse};
 use yieldagent_data::market::Refusal;
 
 const RECORDED: &[u8] = include_bytes!("fixtures/defillama-pools.json");
@@ -99,12 +99,10 @@ fn the_entry_count_is_capped() {
         s.push_str("]}");
         s
     };
+    // Literal counts: the proof raises the constant; 100,001 entries must still be refused.
+    assert_eq!(parse(body(100_000).as_bytes()).unwrap().entries, 100_000);
     assert_eq!(
-        parse(body(MAX_ENTRIES).as_bytes()).unwrap().entries,
-        MAX_ENTRIES
-    );
-    assert_eq!(
-        parse(body(MAX_ENTRIES + 1).as_bytes()),
+        parse(body(100_001).as_bytes()),
         Err(BodyError::TooManyEntries)
     );
 }

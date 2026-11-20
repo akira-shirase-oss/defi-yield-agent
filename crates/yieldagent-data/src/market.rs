@@ -232,6 +232,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines, reason = "one table of cases")]
     fn every_field_has_its_named_refusal() {
         let cases: [(RawEntry<'static>, Refusal); 14] = [
             (
