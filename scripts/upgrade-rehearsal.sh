@@ -54,7 +54,9 @@ build() {
   local next="$DRILL_WORK/next-src"
   mkdir -p "$next"
   tar --exclude ./target --exclude ./.git -cf - . | tar -xf - -C "$next"
-  cat >"$next/migrations/0003_rehearsal.sql" <<'SQL'
+  local last
+  last=$(find migrations -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1)
+  cat >"$next/migrations/$(printf '%04d' $((10#${last%%_*} + 1)))_rehearsal.sql" <<'SQL'
 -- The rehearsal's vN+1: one new table, with its grant.
 CREATE TABLE rehearsal_notes (id integer PRIMARY KEY, body text NOT NULL);
 GRANT SELECT, INSERT ON rehearsal_notes TO yieldagent_app;
