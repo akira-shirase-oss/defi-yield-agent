@@ -32,6 +32,7 @@ pub struct AppState {
     pub stack: StackLimits,
     /// Requests at once on `/v1` before shedding.
     pub max_in_flight: usize,
+    pub markets: yieldagent_markets::routes::Markets,
 }
 
 /// A sample product route: readable with a workspace's API token or by its members.
@@ -52,17 +53,22 @@ pub fn app(state: AppState) -> Router {
     let product = Router::new()
         .route("/workspaces/{workspace}/hello", get(hello))
         .with_state(state.accounts.clone());
+    let gate = stack::gate(state.max_in_flight);
     let v1 = yieldagent_accounts::router(state.accounts.clone())
         .merge(product)
+        .merge(yieldagent_markets::routes::api(state.markets.clone()))
         .route_layer(axum::middleware::from_fn_with_state(
-            stack::gate(state.max_in_flight),
+            gate.clone(),
             stack::shed,
         ));
+    let page = yieldagent_markets::routes::page(state.markets.clone()).route_layer(
+        axum::middleware::from_fn_with_state(gate, stack::shed),
+    );
     let health = Router::new()
         .route("/livez", get(health::livez))
         .route("/readyz", get(health::readyz))
         .route("/errorz", get(health::errorz))
         .with_state(state.health.clone());
-    let router = Router::new().nest("/v1", v1).merge(health);
+    let router = Router::new().nest("/v1", v1).merge(page).merge(health);
     stack::apply(router, state.stack, state.errors)
 }

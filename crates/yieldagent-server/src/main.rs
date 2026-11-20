@@ -124,12 +124,44 @@ async fn run(config: Config) -> Result<Drained, Stop> {
         config.error_rate_permille,
         config.error_min_requests,
     );
+    let board = Arc::new(yieldagent_markets::Board::default());
+    match tokio::time::timeout(config.startup_timeout, board.load(&pool)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(Stop::Failed(anyhow::anyhow!(yieldagent_db::chain(&e)))),
+        Err(_) => return Err(Stop::Failed(anyhow::anyhow!("loading the market board passed the startup timeout"))),
+    }
+    let markets = yieldagent_markets::routes::Markets {
+        board: board.clone(),
+        pool: pool.clone(),
+        max_age: time::Duration::try_from(config.snapshot_max_age)?,
+    };
+    if let Some(target) = config.defillama.clone() {
+        let source = yieldagent_data::live::LiveSource::new(
+            yieldagent_data::defillama::SOURCE,
+            target,
+            config.fetch_timeout,
+            config.source_max_body,
+        );
+        let ports = yieldagent_markets::worker::Ports {
+            source: Arc::new(source),
+            chain: Arc::new(yieldagent_data::screen::NoChainReads),
+        };
+        let settings = yieldagent_markets::worker::Settings {
+            interval: config.fetch_interval,
+            fetch_deadline: config.fetch_timeout + std::time::Duration::from_secs(1),
+            ..yieldagent_markets::worker::Settings::default()
+        };
+        tokio::spawn(yieldagent_markets::worker::run(pool.clone(), board, ports, settings, shutdown.clone()));
+    } else {
+        tracing::warn!("YIELDAGENT_DEFILLAMA_URL is empty: the market data worker is off");
+    }
     let router = app(AppState {
         accounts,
         health,
         errors,
         stack: config.stack,
         max_in_flight: config.max_in_flight,
+        markets,
     });
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %listener.local_addr()?, version = env!("CARGO_PKG_VERSION"), "listening");

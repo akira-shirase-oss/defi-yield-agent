@@ -60,6 +60,11 @@ pub const VARIABLES: &[(&str, &str, &str)] = &[
     ("YIELDAGENT_DB_STATEMENT_TIMEOUT_MS", "3000", "100..=600000"),
     ("YIELDAGENT_READY_TIMEOUT_MS", "500", "50..=10000"),
     ("YIELDAGENT_STARTUP_TIMEOUT_MS", "30000", "1000..=600000"),
+    ("YIELDAGENT_DEFILLAMA_URL", "", "empty (the worker is off) or an https URL"),
+    ("YIELDAGENT_FETCH_INTERVAL_S", "300", "10..=3600"),
+    ("YIELDAGENT_FETCH_TIMEOUT_MS", "20000", "1000..=120000"),
+    ("YIELDAGENT_SOURCE_MAX_BODY_BYTES", "33554432", "1048576..=134217728"),
+    ("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "900", "60..=86400"),
     (
         "YIELDAGENT_ERROR_RATE_PERMILLE",
         "50",
@@ -179,6 +184,14 @@ pub struct Config {
     pub ready_timeout: Duration,
     /// How long startup waits for an unavailable database.
     pub startup_timeout: Duration,
+    /// The market data worker's source; `None`: the worker is off, the reads serve what is
+    /// stored.
+    pub defillama: Option<yieldagent_data::live::Target>,
+    pub fetch_interval: Duration,
+    pub fetch_timeout: Duration,
+    pub source_max_body: usize,
+    /// Case 5's freshness bound.
+    pub snapshot_max_age: Duration,
     /// `/errorz` threshold, server errors per thousand requests.
     pub error_rate_permille: u64,
     /// Fewer requests than this in the window never alert.
@@ -378,6 +391,23 @@ impl Config {
         };
         let ready_timeout = p.millis(source, "YIELDAGENT_READY_TIMEOUT_MS", 50..=10_000);
         let startup_timeout = p.millis(source, "YIELDAGENT_STARTUP_TIMEOUT_MS", 1_000..=600_000);
+        let defillama = match source.var("YIELDAGENT_DEFILLAMA_URL").as_deref() {
+            None | Some("") => None,
+            Some(url) => match yieldagent_data::live::Target::parse(url) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    p.0.push(format!("YIELDAGENT_DEFILLAMA_URL: {e}"));
+                    None
+                }
+            },
+        };
+        let fetch_interval = p.secs(source, "YIELDAGENT_FETCH_INTERVAL_S", 10..=3_600);
+        let fetch_timeout = p.millis(source, "YIELDAGENT_FETCH_TIMEOUT_MS", 1_000..=120_000);
+        let source_max_body = p.number(source, "YIELDAGENT_SOURCE_MAX_BODY_BYTES", 1_048_576..=134_217_728);
+        let snapshot_max_age = p.secs(source, "YIELDAGENT_SNAPSHOT_MAX_AGE_S", 60..=86_400);
+        if fetch_timeout >= fetch_interval {
+            p.0.push("YIELDAGENT_FETCH_TIMEOUT_MS must be below YIELDAGENT_FETCH_INTERVAL_S".to_owned());
+        }
         let error_rate_permille = p.number(source, "YIELDAGENT_ERROR_RATE_PERMILLE", 1..=1_000);
         let error_min_requests = p.number(source, "YIELDAGENT_ERROR_MIN_REQUESTS", 1..=1_000_000);
         let log_filter = source
@@ -480,6 +510,11 @@ impl Config {
                 db,
                 ready_timeout,
                 startup_timeout,
+                defillama,
+                fetch_interval,
+                fetch_timeout,
+                source_max_body,
+                snapshot_max_age,
                 error_rate_permille,
                 error_min_requests,
                 log_filter,

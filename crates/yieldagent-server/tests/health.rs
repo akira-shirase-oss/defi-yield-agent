@@ -31,10 +31,15 @@ async fn app_on(database_url: &str, ready: Duration) -> (axum::Router, Arc<Error
         .unwrap();
     let router = app(AppState {
         accounts,
-        health: Health::new(pool, ready, errors.clone(), 50, 20),
+        health: Health::new(pool.clone(), ready, errors.clone(), 50, 20),
         errors: errors.clone(),
         stack: StackLimits::default(),
         max_in_flight: 64,
+        markets: yieldagent_markets::routes::Markets {
+            board: Arc::new(yieldagent_markets::Board::default()),
+            pool: pool.clone(),
+            max_age: time::Duration::minutes(15),
+        },
     });
     (router, errors)
 }

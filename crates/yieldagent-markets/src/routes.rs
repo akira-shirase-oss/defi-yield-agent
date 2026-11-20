@@ -23,7 +23,7 @@ use crate::store::{self, MAX_HISTORY, Stored};
 /// Default history page.
 pub const DEFAULT_HISTORY: u32 = 100;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Markets {
     pub board: Arc<Board>,
     pub pool: PgPool,

@@ -2501,6 +2501,7 @@ dependencies = [
  "http-body-util",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tokio-util",
  "tower",
@@ -2508,8 +2509,10 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "yieldagent-accounts",
+ "yieldagent-data",
  "yieldagent-db",
  "yieldagent-http",
+ "yieldagent-markets",
 ]
 
 [[package]]
