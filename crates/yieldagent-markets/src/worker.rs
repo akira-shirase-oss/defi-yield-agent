@@ -63,7 +63,8 @@ pub struct Ports {
 /// The clock, at PostgreSQL's precision, so a round reads back exactly as it was built.
 fn now() -> OffsetDateTime {
     let t = OffsetDateTime::now_utc();
-    t.replace_nanosecond(t.nanosecond() / 1_000 * 1_000).unwrap_or(t)
+    t.replace_nanosecond(t.nanosecond() / 1_000 * 1_000)
+        .unwrap_or(t)
 }
 
 /// Builds a round from one fetch. Pure but for the fetch and the clock.
@@ -100,7 +101,11 @@ pub async fn fetch_round(ports: &Ports, board: &Board, settings: &Settings) -> R
     };
     round.entries = u32::try_from(parsed.entries).unwrap_or(u32::MAX);
     round.selected = u32::try_from(parsed.selected).unwrap_or(u32::MAX);
-    round.refusals = parsed.refusals.iter().map(|(r, n)| (r.code(), *n)).collect();
+    round.refusals = parsed
+        .refusals
+        .iter()
+        .map(|(r, n)| (r.code(), *n))
+        .collect();
     if parsed.markets.is_empty() {
         return round; // LIMIT(no-markets-is-down)
     }
@@ -119,7 +124,11 @@ pub async fn fetch_round(ports: &Ports, board: &Board, settings: &Settings) -> R
                 flags.push(Flag::ApySpike);
             }
             let cross_check = ports.chain.cross_check(&market);
-            Snapshot { market, flags, cross_check }
+            Snapshot {
+                market,
+                flags,
+                cross_check,
+            }
         })
         .collect();
     round.outcome = Outcome::Ok(snapshots);
@@ -127,10 +136,16 @@ pub async fn fetch_round(ports: &Ports, board: &Board, settings: &Settings) -> R
 }
 
 /// Stores a round with bounded attempts, then applies it to the board.
-pub async fn store_round(pool: &PgPool, board: &Board, round: &Round, settings: &Settings) -> Result<Written, RoundError> {
+pub async fn store_round(
+    pool: &PgPool,
+    board: &Board,
+    round: &Round,
+    settings: &Settings,
+) -> Result<Written, RoundError> {
     let mut last = None;
     let attempts = settings.write_attempts.max(1);
-    for attempt in 1..=attempts { // LIMIT(write-attempts)
+    // LIMIT(write-attempts)
+    for attempt in 1..=attempts {
         match tokio::time::timeout(settings.write_deadline, store::record(pool, round)).await {
             Ok(Ok(written)) => {
                 board.apply(round);
@@ -161,7 +176,13 @@ fn alert(round: &Round) {
 
 /// Runs rounds until `shutdown`. A round that cannot be stored is logged and skipped: the
 /// board keeps the last stored state, and its age makes it stale in time.
-pub async fn run(pool: PgPool, board: Arc<Board>, ports: Ports, settings: Settings, shutdown: CancellationToken) {
+pub async fn run(
+    pool: PgPool,
+    board: Arc<Board>,
+    ports: Ports,
+    settings: Settings,
+    shutdown: CancellationToken,
+) {
     let mut ticks = tokio::time::interval(settings.interval);
     ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {

@@ -30,16 +30,25 @@ impl Recorded {
 
     /// Replaces the script (tests that change the source between rounds).
     pub fn script(&self, steps: impl IntoIterator<Item = Step>) {
-        let mut guard = self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .steps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *guard = steps.into_iter().collect();
     }
 
     fn next(&self) -> Step {
-        let mut guard = self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .steps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if guard.len() > 1 {
             guard.pop_front().unwrap_or(Step::Fail(FetchError::Connect))
         } else {
-            guard.front().cloned().unwrap_or(Step::Fail(FetchError::Connect))
+            guard
+                .front()
+                .cloned()
+                .unwrap_or(Step::Fail(FetchError::Connect))
         }
     }
 }

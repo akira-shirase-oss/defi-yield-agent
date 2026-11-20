@@ -16,9 +16,17 @@ fn the_recorded_body_yields_only_base_usdc_on_the_allowlist() {
     assert_eq!(p.selected, 30);
     assert_eq!(p.markets.len(), 30, "refusals: {:?}", p.refusals);
     assert!(p.markets.iter().all(|m| m.chain == "Base"));
-    let aave = p.markets.iter().find(|m| m.pool_id == "7e0661bf-8cf3-45e6-9424-31916d4c7b84").unwrap();
+    let aave = p
+        .markets
+        .iter()
+        .find(|m| m.pool_id == "7e0661bf-8cf3-45e6-9424-31916d4c7b84")
+        .unwrap();
     assert_eq!((aave.protocol, aave.symbol.as_str()), ("aave-v3", "USDC"));
-    assert_eq!(aave.apy, Decimal::from_str("5.35824").unwrap(), "exact, not a float");
+    assert_eq!(
+        aave.apy,
+        Decimal::from_str("5.35824").unwrap(),
+        "exact, not a float"
+    );
 }
 
 #[test]
@@ -43,7 +51,12 @@ fn every_hostile_entry_is_refused_by_name_and_only_the_good_one_kept() {
         (Refusal::DuplicatePool, 2),
     ];
     for (r, n) in want {
-        assert_eq!(p.refusals.get(&r).copied(), Some(n), "{r:?} in {:?}", p.refusals);
+        assert_eq!(
+            p.refusals.get(&r).copied(),
+            Some(n),
+            "{r:?} in {:?}",
+            p.refusals
+        );
     }
     assert_eq!(p.refused(), 14);
 }
@@ -54,7 +67,10 @@ fn a_body_that_is_not_the_shape_is_refused_whole() {
         (&b""[..], BodyError::Malformed),
         (b"[]", BodyError::Malformed),
         (b"{\"status\":\"success\"}", BodyError::Malformed),
-        (b"{\"status\":\"success\",\"data\":{}}", BodyError::Malformed),
+        (
+            b"{\"status\":\"success\",\"data\":{}}",
+            BodyError::Malformed,
+        ),
         (b"{\"status\":\"error\",\"data\":[]}", BodyError::NotSuccess),
         (b"{\"data\":[]}", BodyError::NotSuccess),
         (b"<html>rate limited</html>", BodyError::Malformed),
@@ -83,6 +99,12 @@ fn the_entry_count_is_capped() {
         s.push_str("]}");
         s
     };
-    assert_eq!(parse(body(MAX_ENTRIES).as_bytes()).unwrap().entries, MAX_ENTRIES);
-    assert_eq!(parse(body(MAX_ENTRIES + 1).as_bytes()), Err(BodyError::TooManyEntries));
+    assert_eq!(
+        parse(body(MAX_ENTRIES).as_bytes()).unwrap().entries,
+        MAX_ENTRIES
+    );
+    assert_eq!(
+        parse(body(MAX_ENTRIES + 1).as_bytes()),
+        Err(BodyError::TooManyEntries)
+    );
 }

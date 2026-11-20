@@ -61,9 +61,8 @@ pub fn app(state: AppState) -> Router {
             gate.clone(),
             stack::shed,
         ));
-    let page = yieldagent_markets::routes::page(state.markets.clone()).route_layer(
-        axum::middleware::from_fn_with_state(gate, stack::shed),
-    );
+    let page = yieldagent_markets::routes::page(state.markets.clone())
+        .route_layer(axum::middleware::from_fn_with_state(gate, stack::shed));
     let health = Router::new()
         .route("/livez", get(health::livez))
         .route("/readyz", get(health::readyz))

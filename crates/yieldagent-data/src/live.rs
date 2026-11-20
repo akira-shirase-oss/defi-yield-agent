@@ -50,7 +50,9 @@ impl Target {
         } else {
             return Err(UrlError::Scheme);
         };
-        let (authority, path) = rest.find('/').map_or((rest, "/"), |i| (&rest[..i], &rest[i..]));
+        let (authority, path) = rest
+            .find('/')
+            .map_or((rest, "/"), |i| (&rest[..i], &rest[i..]));
         let (host, port) = match authority.rsplit_once(':') {
             Some((h, p)) => (h, p.parse::<u16>().map_err(|_| UrlError::Port)?),
             None => (authority, if https { 443 } else { 80 }),
@@ -58,7 +60,9 @@ impl Target {
         // No userinfo, no IPv6 literal, no percent-encoding: a plain name or IPv4.
         if host.is_empty()
             || host.len() > 253
-            || !host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+            || !host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
         {
             return Err(UrlError::Host);
         }
@@ -133,8 +137,13 @@ impl LiveSource {
             .await
             .map_err(|_| FetchError::Connect)?;
         if self.target.https {
-            let name = ServerName::try_from(self.target.host.clone()).map_err(|_| FetchError::Tls)?;
-            let tls = self.tls.connect(name, tcp).await.map_err(|_| FetchError::Tls)?;
+            let name =
+                ServerName::try_from(self.target.host.clone()).map_err(|_| FetchError::Tls)?;
+            let tls = self
+                .tls
+                .connect(name, tcp)
+                .await
+                .map_err(|_| FetchError::Tls)?;
             self.exchange(TokioIo::new(tls)).await
         } else {
             self.exchange(TokioIo::new(tcp)).await
@@ -153,10 +162,16 @@ impl LiveSource {
             .header(HOST, self.target.authority())
             .header(ACCEPT, "application/json")
             .header(ACCEPT_ENCODING, "identity")
-            .header(USER_AGENT, concat!("yieldagent/", env!("CARGO_PKG_VERSION"), " (read-only)"))
+            .header(
+                USER_AGENT,
+                concat!("yieldagent/", env!("CARGO_PKG_VERSION"), " (read-only)"),
+            )
             .body(Empty::new())
             .map_err(|_| FetchError::Protocol)?;
-        let response = sender.send_request(request).await.map_err(|_| FetchError::Protocol)?;
+        let response = sender
+            .send_request(request)
+            .await
+            .map_err(|_| FetchError::Protocol)?;
         if response.status() != StatusCode::OK {
             return Err(FetchError::Status(response.status().as_u16()));
         }
@@ -189,7 +204,10 @@ impl LiveSource {
     }
 }
 
-#[expect(clippy::panic, reason = "ring's provider always supports the safe default versions")]
+#[expect(
+    clippy::panic,
+    reason = "ring's provider always supports the safe default versions"
+)]
 fn unreachable_config() -> rustls::ClientConfig {
     panic!("rustls: the ring provider rejected the safe default protocol versions")
 }
@@ -223,7 +241,10 @@ mod tests {
     #[test]
     fn urls_are_https_or_loopback_http_and_plain() {
         let t = Target::parse("https://yields.llama.fi/pools").unwrap();
-        assert_eq!((t.https, t.host.as_str(), t.port, t.path.as_str()), (true, "yields.llama.fi", 443, "/pools"));
+        assert_eq!(
+            (t.https, t.host.as_str(), t.port, t.path.as_str()),
+            (true, "yields.llama.fi", 443, "/pools")
+        );
         assert_eq!(t.authority(), "yields.llama.fi");
         let t = Target::parse("http://127.0.0.1:63099/pools").unwrap();
         assert_eq!(t.authority(), "127.0.0.1:63099");

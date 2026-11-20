@@ -24,13 +24,22 @@ use yieldagent_markets::store::{self, LastRound, Stored};
 use yieldagent_markets::worker::{fetch_round, store_round};
 
 fn app(state: Markets) -> Router {
-    Router::new().nest("/v1", routes::api(state.clone())).merge(routes::page(state))
+    Router::new()
+        .nest("/v1", routes::api(state.clone()))
+        .merge(routes::page(state))
 }
 
 async fn get(app: &Router, uri: &str) -> (StatusCode, String, Option<String>) {
-    let r = app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
+    let r = app
+        .clone()
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = r.status();
-    let csp = r.headers().get("content-security-policy").map(|v| v.to_str().unwrap().to_owned());
+    let csp = r
+        .headers()
+        .get("content-security-policy")
+        .map(|v| v.to_str().unwrap().to_owned());
     let bytes = r.into_body().collect().await.unwrap().to_bytes();
     (status, String::from_utf8(bytes.to_vec()).unwrap(), csp)
 }
@@ -47,18 +56,32 @@ async fn the_board_serves_exact_apys_and_marks_every_market_unplannable_in_m1() 
     let board = Arc::new(Board::default());
     let (_, p) = ports(vec![Step::Body(RECORDED.to_vec())]);
     let round = fetch_round(&p, &board, &settings()).await;
-    store_round(&pool, &board, &round, &settings()).await.unwrap();
-    let app = app(Markets { board, pool: pool.clone(), max_age: DEFAULT_MAX_AGE });
+    store_round(&pool, &board, &round, &settings())
+        .await
+        .unwrap();
+    let app = app(Markets {
+        board,
+        pool: pool.clone(),
+        max_age: DEFAULT_MAX_AGE,
+    });
     let (status, v) = json(&app, "/v1/markets").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["sources"][0]["name"], "defillama");
     assert_eq!(v["sources"][0]["state"], "fresh");
     assert_eq!(v["markets"].as_array().unwrap().len(), 30);
-    let aave = v["markets"].as_array().unwrap().iter().find(|m| m["pool_id"] == AAVE).unwrap();
+    let aave = v["markets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["pool_id"] == AAVE)
+        .unwrap();
     assert_eq!(aave["apy"], "5.35824", "a string, exact: never a float");
     assert_eq!(aave["freshness"], "fresh");
     assert_eq!(aave["plannable"], false);
-    assert_eq!(aave["suspect"], serde_json::json!(["cross_check_unavailable"]));
+    assert_eq!(
+        aave["suspect"],
+        serde_json::json!(["cross_check_unavailable"])
+    );
     db.cleanup().await;
 }
 
@@ -73,12 +96,22 @@ async fn an_old_snapshot_is_served_stale_and_its_source_stale_never_refreshed() 
     round.observed_at -= Duration::hours(1);
     store::record(&pool, &round).await.unwrap();
     board.load(&pool).await.unwrap();
-    let app = app(Markets { board, pool: pool.clone(), max_age: DEFAULT_MAX_AGE });
+    let app = app(Markets {
+        board,
+        pool: pool.clone(),
+        max_age: DEFAULT_MAX_AGE,
+    });
     let (_, v) = json(&app, "/v1/markets").await;
     assert_eq!(v["sources"][0]["state"], "stale");
     let m = &v["markets"][0];
-    assert_eq!((m["freshness"].as_str(), m["apy"].as_str()), (Some("stale"), Some("4")));
-    assert_eq!(m["suspect"], serde_json::json!(["stale", "cross_check_unavailable"]));
+    assert_eq!(
+        (m["freshness"].as_str(), m["apy"].as_str()),
+        (Some("stale"), Some("4"))
+    );
+    assert_eq!(
+        m["suspect"],
+        serde_json::json!(["stale", "cross_check_unavailable"])
+    );
     assert!(m["age_seconds"].as_i64().unwrap() >= 3600);
     db.cleanup().await;
 }
@@ -92,32 +125,80 @@ async fn history_is_newest_first_bounded_and_refuses_bad_queries_by_name() {
     for apy in ["4", "5", "6"] {
         source.script([Step::Body(body(&[(AAVE, apy)]))]);
         let round = fetch_round(&p, &board, &settings()).await;
-        store_round(&pool, &board, &round, &settings()).await.unwrap();
+        store_round(&pool, &board, &round, &settings())
+            .await
+            .unwrap();
     }
-    let app = app(Markets { board, pool: pool.clone(), max_age: DEFAULT_MAX_AGE });
+    let app = app(Markets {
+        board,
+        pool: pool.clone(),
+        max_age: DEFAULT_MAX_AGE,
+    });
     let (status, v) = json(&app, &format!("/v1/markets/{AAVE}/history?limit=2")).await;
     assert_eq!(status, StatusCode::OK);
-    let apys: Vec<_> = v["snapshots"].as_array().unwrap().iter().map(|s| s["apy"].as_str().unwrap()).collect();
+    let apys: Vec<_> = v["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["apy"].as_str().unwrap())
+        .collect();
     assert_eq!(apys, ["6", "5"]);
     let before = OffsetDateTime::now_utc().unix_timestamp() + 60;
     let (_, v) = json(&app, &format!("/v1/markets/{AAVE}/history?before={before}")).await;
     assert_eq!(v["snapshots"].as_array().unwrap().len(), 3);
     for (uri, code) in [
-        (format!("/v1/markets/{AAVE}/history?limit=501"), "invalid_limit"),
-        (format!("/v1/markets/{AAVE}/history?limit=0"), "invalid_limit"),
-        (format!("/v1/markets/{AAVE}/history?limit=-1"), "invalid_limit"),
-        (format!("/v1/markets/{AAVE}/history?limit=99999999999999999999"), "invalid_limit"),
-        (format!("/v1/markets/{AAVE}/history?before=yesterday"), "invalid_before"),
-        (format!("/v1/markets/{AAVE}/history?limit=1;DROP%20TABLE"), "invalid_limit"),
-        (format!("/v1/markets/{AAVE}/history?pool_id=x"), "unknown_parameter"),
-        (format!("/v1/markets/{AAVE}/history?{}", "a=1&".repeat(100)), "query_too_long"),
-        ("/v1/markets/x'%20OR%20'1'='1/history".to_owned(), "invalid_pool_id"),
-        (format!("/v1/markets/{}/history", "a".repeat(65)), "invalid_pool_id"),
+        (
+            format!("/v1/markets/{AAVE}/history?limit=501"),
+            "invalid_limit",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?limit=0"),
+            "invalid_limit",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?limit=-1"),
+            "invalid_limit",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?limit=99999999999999999999"),
+            "invalid_limit",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?before=yesterday"),
+            "invalid_before",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?limit=1;DROP%20TABLE"),
+            "invalid_limit",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?pool_id=x"),
+            "unknown_parameter",
+        ),
+        (
+            format!("/v1/markets/{AAVE}/history?{}", "a=1&".repeat(100)),
+            "query_too_long",
+        ),
+        (
+            "/v1/markets/x'%20OR%20'1'='1/history".to_owned(),
+            "invalid_pool_id",
+        ),
+        (
+            format!("/v1/markets/{}/history", "a".repeat(65)),
+            "invalid_pool_id",
+        ),
     ] {
         let (status, v) = json(&app, &uri).await;
-        assert_eq!((status, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some(code)), "{uri}");
+        assert_eq!(
+            (status, v["error"]["code"].as_str()),
+            (StatusCode::BAD_REQUEST, Some(code)),
+            "{uri}"
+        );
     }
-    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM market_snapshots").fetch_one(&pool).await.unwrap();
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM market_snapshots")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(stored, 3, "nothing a query sends changes the store");
     db.cleanup().await;
 }
@@ -159,10 +240,17 @@ async fn the_html_list_is_plain_and_escapes_everything_it_shows() {
     assert!(!page.contains("<script"), "{page}");
     assert!(!page.contains("\"'&<"), "{page}");
     assert!(page.contains("&lt;script&gt;alert(1)&lt;/script&gt;&quot;&#39;&amp;"));
-    assert!(!page.contains("style") && !page.contains("class="), "no visual design");
+    assert!(
+        !page.contains("style") && !page.contains("class="),
+        "no visual design"
+    );
     let db = TestDb::new().await;
     let pool = db.connect_as(Role::Runtime).await;
-    let app = app(Markets { board: Arc::new(Board::default()), pool, max_age: DEFAULT_MAX_AGE });
+    let app = app(Markets {
+        board: Arc::new(Board::default()),
+        pool,
+        max_age: DEFAULT_MAX_AGE,
+    });
     let (status, page, csp) = get(&app, "/markets").await;
     assert_eq!(status, StatusCode::OK);
     assert!(page.contains("No market data stored."));

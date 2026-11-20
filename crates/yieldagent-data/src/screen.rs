@@ -133,7 +133,9 @@ pub fn source_state(
 ) -> SourceState {
     match (last_round_ok, last_good_at) {
         (None, _) => SourceState::Unknown,
-        (Some(_), Some(at)) if freshness(at, now, max_age) == Freshness::Stale => SourceState::Stale,
+        (Some(_), Some(at)) if freshness(at, now, max_age) == Freshness::Stale => {
+            SourceState::Stale
+        }
         (Some(true), Some(_)) => SourceState::Fresh,
         (Some(_), _) => SourceState::Down,
     }
@@ -153,7 +155,10 @@ mod tests {
         let h = [d("4"), d("4"), d("4")];
         assert!(!is_spike(d("12"), &h), "exactly 3x is not over 3x");
         assert!(is_spike(d("12.0000001"), &h));
-        assert!(!is_spike(d("1000"), &h[..2]), "too little history judges nothing");
+        assert!(
+            !is_spike(d("1000"), &h[..2]),
+            "too little history judges nothing"
+        );
         let mut long = vec![d("100"); 20];
         long.extend([d("1"); AVERAGE_WINDOW]);
         assert!(is_spike(d("3.5"), &long), "only the last window counts");
@@ -164,13 +169,28 @@ mod tests {
         let now = OffsetDateTime::UNIX_EPOCH + Duration::days(1);
         let max = DEFAULT_MAX_AGE;
         assert_eq!(freshness(now - max, now, max), Freshness::Fresh);
-        assert_eq!(freshness(now - max - Duration::SECOND, now, max), Freshness::Stale);
+        assert_eq!(
+            freshness(now - max - Duration::SECOND, now, max),
+            Freshness::Stale
+        );
         assert_eq!(source_state(None, None, now, max), SourceState::Unknown);
-        assert_eq!(source_state(Some(true), Some(now), now, max), SourceState::Fresh);
-        assert_eq!(source_state(Some(false), Some(now), now, max), SourceState::Down);
+        assert_eq!(
+            source_state(Some(true), Some(now), now, max),
+            SourceState::Fresh
+        );
+        assert_eq!(
+            source_state(Some(false), Some(now), now, max),
+            SourceState::Down
+        );
         assert_eq!(source_state(Some(false), None, now, max), SourceState::Down);
-        assert_eq!(source_state(Some(false), Some(now - Duration::hours(1)), now, max), SourceState::Stale);
-        assert_eq!(source_state(Some(true), Some(now - Duration::hours(1)), now, max), SourceState::Stale);
+        assert_eq!(
+            source_state(Some(false), Some(now - Duration::hours(1)), now, max),
+            SourceState::Stale
+        );
+        assert_eq!(
+            source_state(Some(true), Some(now - Duration::hours(1)), now, max),
+            SourceState::Stale
+        );
     }
 
     #[test]

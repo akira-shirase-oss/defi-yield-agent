@@ -64,7 +64,11 @@ impl Board {
     pub fn apply(&self, round: &Round) {
         let old = self.view();
         let mut view = View::clone(&old);
-        let refusals = round.refusals.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect();
+        let refusals = round
+            .refusals
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), *v))
+            .collect();
         let (ok, error_code, accepted) = match &round.outcome {
             Outcome::Ok(s) => (true, None, s.len()),
             Outcome::Down(code) => (false, Some((*code).to_owned()), 0),
@@ -83,7 +87,11 @@ impl Board {
                     accepted: u32::try_from(accepted).unwrap_or(u32::MAX),
                     refusals,
                 },
-                last_good_at: if ok { Some(round.observed_at) } else { previous_good },
+                last_good_at: if ok {
+                    Some(round.observed_at)
+                } else {
+                    previous_good
+                },
             },
         );
         if let Outcome::Ok(snapshots) = &round.outcome {
@@ -92,7 +100,7 @@ impl Board {
                 let recent = view.recent.entry(s.market.pool_id.clone()).or_default();
                 recent.push_back(s.market.apy);
                 while recent.len() > AVERAGE_WINDOW {
-                    recent.pop_front(); // LIMIT(recent-window)
+                    recent.pop_front();
                 }
                 view.markets.push(Stored {
                     round_id: round.id,
@@ -107,7 +115,8 @@ impl Board {
                     cross_check: s.cross_check.code().to_owned(),
                 });
             }
-            view.markets.sort_by(|a, b| (&a.source, &a.pool_id).cmp(&(&b.source, &b.pool_id)));
+            view.markets
+                .sort_by(|a, b| (&a.source, &a.pool_id).cmp(&(&b.source, &b.pool_id)));
         }
         self.replace(view);
     }

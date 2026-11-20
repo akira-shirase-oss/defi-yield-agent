@@ -3,6 +3,7 @@
 # load-test standard: a scenario per feature that serves traffic, full runs of at least
 # 1,000,000 requests, results with machine and commit, misses kept).
 #
+#   SCENARIO=service (default) or markets (L1-M1: the market read API)
 #   MODE=smoke scripts/load.sh        100,000 requests
 #   MODE=full  scripts/load.sh        1,000,000 requests: only on a quiet machine
 #   scripts/load.sh --setup-only      build, set up, seed and check, offer no load
@@ -29,6 +30,8 @@ case "${1:-}" in
   *) echo "load.sh: unknown argument $1 (see --help)" >&2; exit 2 ;;
 esac
 mode="${MODE:-smoke}"
+scenario="${SCENARIO:-service}"
+case "$scenario" in service|markets) ;; *) echo "SCENARIO must be service or markets" >&2; exit 2 ;; esac
 rate="${RATE:-1000}"
 case "$mode" in smoke|full) ;; *) echo "MODE must be smoke or full" >&2; exit 2 ;; esac
 require_database tools
@@ -52,13 +55,22 @@ ctl "$db" bootstrap >/dev/null
 ctl "$db" migrate >/dev/null
 target/release/examples/smtp-sink "127.0.0.1:$sink_port" "$work/mail.log" >"$work/sink.log" 2>&1 &
 pids+=($!)
+source_url=""
+if [ "$scenario" = markets ]; then
+  # The market source: the recorded DefiLlama body, served on loopback (port + 7).
+  python3 -m http.server "$((port + 7))" --bind 127.0.0.1 --directory crates/yieldagent-data/tests/fixtures \
+    >"$work/source.log" 2>&1 &
+  pids+=($!)
+  source_url="http://127.0.0.1:$((port + 7))/defillama-pools.json"
+fi
 YIELDAGENT_DATABASE_URL="$(role_url yieldagent_app "$APP_PW" "$db")" YIELDAGENT_LISTEN="127.0.0.1:$port" \
   YIELDAGENT_SMTP_RELAY="127.0.0.1:$sink_port" YIELDAGENT_PUBLIC_URL="$base" YIELDAGENT_COOKIE_SECURE=false \
+  YIELDAGENT_DEFILLAMA_URL="$source_url" YIELDAGENT_FETCH_INTERVAL_S=10 YIELDAGENT_FETCH_TIMEOUT_MS=5000 \
   YIELDAGENT_LOG=warn YIELDAGENT_MAX_IN_FLIGHT="${MAX_IN_FLIGHT:-256}" target/release/yieldagent-server >"$work/server.log" 2>&1 &
 server=$!
 pids+=($server)
 for _ in $(seq 1 120); do curl -fsS -o /dev/null "$base/readyz" 2>/dev/null && break; sleep 0.25; done
-curl -fsS -o /dev/null "$base/readyz"
+curl -fsS -o /dev/null "$base/readyz" || { echo "error: the server is not ready; its log:" >&2; tail -n 20 "$work/server.log" >&2; exit 1; }
 
 api() { curl -sS --max-time 10 -X "$1" -b "$work/cookies" -c "$work/cookies" -H 'content-type: application/json' ${3:+--data "$3"} "$base$2"; }
 invite="$(ctl "$db" invite 1 1)"
@@ -71,8 +83,18 @@ workspace="$(api POST /v1/workspaces '{"name":"Load"}' | jq -r '.id')"
 token="$(api POST "/v1/workspaces/$workspace/tokens" '{"name":"load"}' | jq -r '.token')"
 status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" "$base/v1/workspaces/$workspace/hello")"
 [ "$status" = 200 ] || { echo "error: the seeded token read answered $status" >&2; exit 1; }
+pool=""
+if [ "$scenario" = markets ]; then
+  for _ in $(seq 1 120); do
+    [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 30 ] && break
+    sleep 0.25
+  done
+  pool="$(curl -fsS "$base/v1/markets" | jq -r '.markets[0].pool_id')"
+  [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 30 ] \
+    || { echo "error: the worker did not store the recorded round" >&2; exit 1; }
+fi
 if $setup_only; then
-  echo "setup ok: server ready, account, workspace and token seeded; a token read answers 200 (no load offered)"
+  echo "setup ok ($scenario): server ready, account, workspace and token seeded; a token read answers 200 (no load offered)"
   exit 0
 fi
 
@@ -80,8 +102,8 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 summary="$work/summary.json"
 load_before="$(uptime | sed 's/.*load averages*: *//')"
 set +e
-BASE_URL="$base" TOKEN="$token" WORKSPACE="$workspace" MODE="$mode" RATE="$rate" TOTAL="${TOTAL:-}" \
-  k6 run --quiet --summary-export "$summary" perf/scenarios/service.js
+BASE_URL="$base" POOL="$pool" TOKEN="$token" WORKSPACE="$workspace" MODE="$mode" RATE="$rate" TOTAL="${TOTAL:-}" \
+  k6 run --quiet --summary-export "$summary" "perf/scenarios/$scenario.js"
 k6_status=$?
 set -e
 load_after="$(uptime | sed 's/.*load averages*: *//')"
@@ -99,18 +121,20 @@ busy="$(awk '{gsub(",", "", $1); print ($1 > 6) ? "true" : "false"}' <<<"$load_b
 outdir=perf/results
 if [ -n "${TOTAL:-}" ]; then outdir=target/perf; mode="probe-${TOTAL}"; fi
 mkdir -p "$outdir"
-out="$outdir/${stamp}-service-${mode}.json"
-jq -n --arg mode "$mode" --arg stamp "$stamp" --arg commit "$commit" --argjson dirty "$dirty" \
+out="$outdir/${stamp}-${scenario}-${mode}.json"
+mix="90% token-authenticated workspace reads, 10% /livez"
+[ "$scenario" = markets ] && mix="70% /v1/markets, 20% /v1/markets/{pool}/history?limit=50, 10% /markets (HTML), worker fetching every 10 s"
+jq -n --arg scenario "$scenario" --arg mix "$mix" --arg mode "$mode" --arg stamp "$stamp" --arg commit "$commit" --argjson dirty "$dirty" \
   --arg cpu "$cpu" --arg cores "$cores" --arg mem_gb "$mem_gb" --arg os "$os" \
   --arg load_before "$load_before" --arg load_after "$load_after" --argjson busy "$busy" \
   --argjson rate "$rate" --argjson k6_status "$k6_status" --arg rss_kb "$rss_kb" \
   --slurpfile summary "$summary" '
-  { scenario: "service", mode: $mode, started_utc: $stamp, commit: $commit, tree_dirty: $dirty,
+  { scenario: $scenario, mode: $mode, started_utc: $stamp, commit: $commit, tree_dirty: $dirty,
     machine: { cpu: $cpu, cores: ($cores|tonumber), memory_gb: ($mem_gb|tonumber), os: $os,
                load_average_before: $load_before, load_average_after: $load_after, busy_machine: $busy,
                note: "same-machine load generator: a development observation, not capacity" },
     offered_rate_per_second: $rate,
-    mix: "90% token-authenticated workspace reads, 10% /livez",
+    mix: $mix,
     thresholds_passed: ($k6_status == 0), k6_exit_status: $k6_status,
     requests: $summary[0].metrics.http_reqs.count,
     requests_per_second: $summary[0].metrics.http_reqs.rate,

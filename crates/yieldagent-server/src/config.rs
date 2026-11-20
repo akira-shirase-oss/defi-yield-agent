@@ -60,10 +60,18 @@ pub const VARIABLES: &[(&str, &str, &str)] = &[
     ("YIELDAGENT_DB_STATEMENT_TIMEOUT_MS", "3000", "100..=600000"),
     ("YIELDAGENT_READY_TIMEOUT_MS", "500", "50..=10000"),
     ("YIELDAGENT_STARTUP_TIMEOUT_MS", "30000", "1000..=600000"),
-    ("YIELDAGENT_DEFILLAMA_URL", "", "empty (the worker is off) or an https URL"),
+    (
+        "YIELDAGENT_DEFILLAMA_URL",
+        "",
+        "empty (the worker is off) or an https URL",
+    ),
     ("YIELDAGENT_FETCH_INTERVAL_S", "300", "10..=3600"),
     ("YIELDAGENT_FETCH_TIMEOUT_MS", "20000", "1000..=120000"),
-    ("YIELDAGENT_SOURCE_MAX_BODY_BYTES", "33554432", "1048576..=134217728"),
+    (
+        "YIELDAGENT_SOURCE_MAX_BODY_BYTES",
+        "33554432",
+        "1048576..=134217728",
+    ),
     ("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "900", "60..=86400"),
     (
         "YIELDAGENT_ERROR_RATE_PERMILLE",
@@ -403,10 +411,16 @@ impl Config {
         };
         let fetch_interval = p.secs(source, "YIELDAGENT_FETCH_INTERVAL_S", 10..=3_600);
         let fetch_timeout = p.millis(source, "YIELDAGENT_FETCH_TIMEOUT_MS", 1_000..=120_000);
-        let source_max_body = p.number(source, "YIELDAGENT_SOURCE_MAX_BODY_BYTES", 1_048_576..=134_217_728);
+        let source_max_body = p.number(
+            source,
+            "YIELDAGENT_SOURCE_MAX_BODY_BYTES",
+            1_048_576..=134_217_728,
+        );
         let snapshot_max_age = p.secs(source, "YIELDAGENT_SNAPSHOT_MAX_AGE_S", 60..=86_400);
         if fetch_timeout >= fetch_interval {
-            p.0.push("YIELDAGENT_FETCH_TIMEOUT_MS must be below YIELDAGENT_FETCH_INTERVAL_S".to_owned());
+            p.0.push(
+                "YIELDAGENT_FETCH_TIMEOUT_MS must be below YIELDAGENT_FETCH_INTERVAL_S".to_owned(),
+            );
         }
         let error_rate_permille = p.number(source, "YIELDAGENT_ERROR_RATE_PERMILLE", 1..=1_000);
         let error_min_requests = p.number(source, "YIELDAGENT_ERROR_MIN_REQUESTS", 1..=1_000_000);

@@ -13,7 +13,7 @@ use yieldagent_data::screen::{CrossCheck, Flag};
 use yieldagent_db::DbError;
 
 /// Most snapshot rows one history read returns.
-pub const MAX_HISTORY: u32 = 500; // LIMIT(history-rows)
+pub const MAX_HISTORY: u32 = 500;
 
 /// One stored market.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,11 +163,32 @@ pub struct Stored {
     pub cross_check: String,
 }
 
-type RoundRow = (String, OffsetDateTime, String, Option<String>, i32, i32, i32, Value);
-type StoredRow = (Uuid, String, String, String, String, String, String, OffsetDateTime, Vec<String>, String);
+type RoundRow = (
+    String,
+    OffsetDateTime,
+    String,
+    Option<String>,
+    i32,
+    i32,
+    i32,
+    Value,
+);
+type StoredRow = (
+    Uuid,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    OffsetDateTime,
+    Vec<String>,
+    String,
+);
 
 fn stored(row: StoredRow) -> Result<Stored, DbError> {
-    let (round_id, source, pool_id, protocol, symbol, apy, tvl, observed_at, flags, cross_check) = row;
+    let (round_id, source, pool_id, protocol, symbol, apy, tvl, observed_at, flags, cross_check) =
+        row;
     let decimal = |s: &str| {
         s.parse::<Decimal>()
             .map(|d| d.normalize())
@@ -210,16 +231,20 @@ pub async fn latest(pool: &PgPool) -> Result<Latest, DbError> {
     .await?;
     let last = rounds
         .into_iter()
-        .map(|(source, observed_at, outcome, error_code, entries, selected, accepted, refusals)| LastRound {
-            source,
-            observed_at,
-            ok: outcome == "ok",
-            error_code,
-            entries: u32_of(entries),
-            selected: u32_of(selected),
-            accepted: u32_of(accepted),
-            refusals: serde_json::from_value(refusals).unwrap_or_default(),
-        })
+        .map(
+            |(source, observed_at, outcome, error_code, entries, selected, accepted, refusals)| {
+                LastRound {
+                    source,
+                    observed_at,
+                    ok: outcome == "ok",
+                    error_code,
+                    entries: u32_of(entries),
+                    selected: u32_of(selected),
+                    accepted: u32_of(accepted),
+                    refusals: serde_json::from_value(refusals).unwrap_or_default(),
+                }
+            },
+        )
         .collect();
     let good: Vec<(Uuid, String, OffsetDateTime)> = sqlx::query_as(
         "SELECT DISTINCT ON (source) round_id, source, observed_at
@@ -237,12 +262,19 @@ pub async fn latest(pool: &PgPool) -> Result<Latest, DbError> {
     .fetch_all(pool)
     .await?;
     let snapshots = rows.into_iter().map(stored).collect::<Result<_, _>>()?;
-    Ok((last, good.into_iter().map(|g| (g.1, g.2)).collect(), snapshots))
+    Ok((
+        last,
+        good.into_iter().map(|g| (g.1, g.2)).collect(),
+        snapshots,
+    ))
 }
 
 /// The last `window` APYs of every pool seen in the last day, oldest first (the spike
 /// check's moving average after a restart).
-pub async fn recent_apys(pool: &PgPool, window: usize) -> Result<BTreeMap<String, Vec<Decimal>>, DbError> {
+pub async fn recent_apys(
+    pool: &PgPool,
+    window: usize,
+) -> Result<BTreeMap<String, Vec<Decimal>>, DbError> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT pool_id, apy::text FROM (
              SELECT pool_id, apy, observed_at,

@@ -105,8 +105,9 @@ pub fn parse_exact(token: &str) -> Result<Decimal, DecimalError> {
     } else {
         trimmed.parse().map_err(|_| DecimalError::Inexact)?
     };
-    let value = Decimal::try_from_i128_with_scale(if negative { -mantissa } else { mantissa }, scale)
-        .map_err(|_| DecimalError::Inexact)?;
+    let value =
+        Decimal::try_from_i128_with_scale(if negative { -mantissa } else { mantissa }, scale)
+            .map_err(|_| DecimalError::Inexact)?;
     Ok(value.normalize())
 }
 
@@ -126,14 +127,23 @@ mod tests {
         assert_eq!(parse_exact("-0.5"), Ok(d("-0.5")));
         assert_eq!(parse_exact("1.5e3"), Ok(d("1500")));
         assert_eq!(parse_exact("4E-2"), Ok(d("0.04")));
-        assert_eq!(parse_exact("123456789.123456789"), Ok(d("123456789.123456789")));
+        assert_eq!(
+            parse_exact("123456789.123456789"),
+            Ok(d("123456789.123456789"))
+        );
         // 0.1 + 0.2 is exact here; through f64 it is 0.30000000000000004.
-        assert_eq!(parse_exact("0.1").unwrap() + parse_exact("0.2").unwrap(), d("0.3"));
+        assert_eq!(
+            parse_exact("0.1").unwrap() + parse_exact("0.2").unwrap(),
+            d("0.3")
+        );
     }
 
     #[test]
     fn what_is_not_a_json_number_is_refused() {
-        for bad in ["", "-", "+1", "01", "1.", ".5", "1e", "1e+", "NaN", "Infinity", "0x10", "1 ", "\"1\"", "null", "1.2.3"] {
+        for bad in [
+            "", "-", "+1", "01", "1.", ".5", "1e", "1e+", "NaN", "Infinity", "0x10", "1 ", "\"1\"",
+            "null", "1.2.3",
+        ] {
             assert_eq!(parse_exact(bad), Err(DecimalError::NotANumber), "{bad:?}");
         }
     }
@@ -141,8 +151,17 @@ mod tests {
     #[test]
     fn what_cannot_be_held_exactly_is_refused_not_rounded() {
         assert_eq!(parse_exact("1e29"), Err(DecimalError::Inexact));
-        assert_eq!(parse_exact("0.00000000000000000000000000001"), Err(DecimalError::Inexact));
-        assert_eq!(parse_exact("12345678901234567890123456789"), Err(DecimalError::Inexact));
-        assert_eq!(parse_exact(&"1".repeat(MAX_NUMBER_LEN + 1)), Err(DecimalError::TooLong));
+        assert_eq!(
+            parse_exact("0.00000000000000000000000000001"),
+            Err(DecimalError::Inexact)
+        );
+        assert_eq!(
+            parse_exact("12345678901234567890123456789"),
+            Err(DecimalError::Inexact)
+        );
+        assert_eq!(
+            parse_exact(&"1".repeat(MAX_NUMBER_LEN + 1)),
+            Err(DecimalError::TooLong)
+        );
     }
 }

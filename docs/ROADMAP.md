@@ -7,7 +7,7 @@ tests and evidence.
 | M | Spec week | Deliverable | Gate | Status |
 |---|---|---|---|---|
 | M0 | — | Base setup from the starter template: CI, gate, port band 63000–63099, drills and evidence kit, `contracts/` shell | CI green on the empty product | **In progress — this base setup** |
-| M1 | 1 | Data worker and snapshots; read-only dashboard | Live APYs shown; case 5 data paths stubbed | Planned |
+| M1 | 1 | Data worker and snapshots; read-only dashboard | Live APYs shown; case 5 data paths stubbed | In review: `yieldagent-data` (parser, fuzz, live), `yieldagent-markets` tests `worker` and `routes`, prove-limits rows, L1-M1 `perf/scenarios/markets.js` (CI job `load-markets`) |
 | M2 | 2 | `risk` and `strategy`; backtest | Cases 5 and 11; backtest report | Planned |
 | M3 | 3 | Policy module, adapters, rebalancer | Case 1; ≥ 90% contract coverage | Planned |
 | M4 | 4 | Account and session key from UI; deposit and withdraw; SIWE | Cases 2 and 12 | Planned |

@@ -128,7 +128,11 @@ async fn run(config: Config) -> Result<Drained, Stop> {
     match tokio::time::timeout(config.startup_timeout, board.load(&pool)).await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => return Err(Stop::Failed(anyhow::anyhow!(yieldagent_db::chain(&e)))),
-        Err(_) => return Err(Stop::Failed(anyhow::anyhow!("loading the market board passed the startup timeout"))),
+        Err(_) => {
+            return Err(Stop::Failed(anyhow::anyhow!(
+                "loading the market board passed the startup timeout"
+            )));
+        }
     }
     let markets = yieldagent_markets::routes::Markets {
         board: board.clone(),
@@ -151,7 +155,13 @@ async fn run(config: Config) -> Result<Drained, Stop> {
             fetch_deadline: config.fetch_timeout + std::time::Duration::from_secs(1),
             ..yieldagent_markets::worker::Settings::default()
         };
-        tokio::spawn(yieldagent_markets::worker::run(pool.clone(), board, ports, settings, shutdown.clone()));
+        tokio::spawn(yieldagent_markets::worker::run(
+            pool.clone(),
+            board,
+            ports,
+            settings,
+            shutdown.clone(),
+        ));
     } else {
         tracing::warn!("YIELDAGENT_DEFILLAMA_URL is empty: the market data worker is off");
     }

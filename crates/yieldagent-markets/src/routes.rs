@@ -100,7 +100,11 @@ fn board_json(view: &View, now: OffsetDateTime, max_age: Duration) -> Value {
             })
         })
         .collect();
-    let markets: Vec<Value> = view.markets.iter().map(|m| market_json(m, now, max_age)).collect();
+    let markets: Vec<Value> = view
+        .markets
+        .iter()
+        .map(|m| market_json(m, now, max_age))
+        .collect();
     json!({
         "as_of": rfc3339(now),
         "max_age_seconds": max_age.whole_seconds(),
@@ -125,17 +129,24 @@ pub struct HistoryQuery {
 pub type QueryRefusal = (&'static str, &'static str);
 
 pub fn parse_history_query(raw: Option<&str>) -> Result<HistoryQuery, QueryRefusal> {
-    let mut q = HistoryQuery { limit: DEFAULT_HISTORY, before: None };
+    let mut q = HistoryQuery {
+        limit: DEFAULT_HISTORY,
+        before: None,
+    };
     let raw = raw.unwrap_or("");
     if raw.len() > 256 {
         return Err(("query_too_long", "the query string is too long"));
     }
     for pair in raw.split('&').filter(|p| !p.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let digits = !value.is_empty() && value.len() <= 12 && value.bytes().all(|b| b.is_ascii_digit());
+        let digits =
+            !value.is_empty() && value.len() <= 12 && value.bytes().all(|b| b.is_ascii_digit());
         match key {
             "limit" => {
-                let n = value.parse::<u32>().ok().filter(|n| digits && (1..=MAX_HISTORY).contains(n)); // LIMIT(history-limit)
+                let n = value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| digits && (1..=MAX_HISTORY).contains(n)); // LIMIT(history-limit)
                 q.limit = n.ok_or(("invalid_limit", "limit must be 1..=500"))?;
             }
             "before" => {
@@ -156,9 +167,17 @@ fn pool_id_ok(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
-async fn history(State(state): State<Markets>, Path(pool_id): Path<String>, RawQuery(raw): RawQuery) -> Response {
+async fn history(
+    State(state): State<Markets>,
+    Path(pool_id): Path<String>,
+    RawQuery(raw): RawQuery,
+) -> Response {
     if !pool_id_ok(&pool_id) {
-        return error(StatusCode::BAD_REQUEST, "invalid_pool_id", "a pool id is 1..=64 of [A-Za-z0-9-]");
+        return error(
+            StatusCode::BAD_REQUEST,
+            "invalid_pool_id",
+            "a pool id is 1..=64 of [A-Za-z0-9-]",
+        );
     }
     let q = match parse_history_query(raw.as_deref()) {
         Ok(q) => q,
@@ -181,7 +200,11 @@ async fn history(State(state): State<Markets>, Path(pool_id): Path<String>, RawQ
         }
         Err(e) => {
             tracing::warn!(error = %yieldagent_db::chain(&e), "market history read failed");
-            error(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "the history is unavailable; retry shortly")
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "the history is unavailable; retry shortly",
+            )
         }
     }
 }
@@ -192,7 +215,7 @@ pub fn escape(text: &str) -> String {
     for c in text.chars() {
         match c {
             '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
+            '<' => out.push_str("&lt;"), // LIMIT(html-escape)
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
@@ -204,15 +227,16 @@ pub fn escape(text: &str) -> String {
 
 /// The plain list: one `<li>` per source and per market, no styles, no scripts.
 pub fn render(view: &View, now: OffsetDateTime, max_age: Duration) -> String {
-    let e = escape; // LIMIT(html-escape)
+    let e = escape;
     let mut page = String::from(
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Markets</title></head><body>\n<h1>Markets</h1>\n<h2>Sources</h2>\n<ul>\n",
     );
     for (name, s) in &view.sources {
-        let state = serde_json::to_value(source_state(Some(s.last.ok), s.last_good_at, now, max_age))
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let state =
+            serde_json::to_value(source_state(Some(s.last.ok), s.last_good_at, now, max_age))
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default();
         let _ = writeln!(
             page,
             "<li>{}: {}; last round {}; last good {}; error {}; accepted {}, refused {}</li>",
@@ -242,7 +266,11 @@ pub fn render(view: &View, now: OffsetDateTime, max_age: Duration) -> String {
             e(&rfc3339(m.observed_at)),
             (now - m.observed_at).whole_seconds().max(0),
             e(&m.pool_id),
-            e(&if why.is_empty() { "none".to_owned() } else { why.join(", ") }),
+            e(&if why.is_empty() {
+                "none".to_owned()
+            } else {
+                why.join(", ")
+            }),
         );
     }
     page.push_str("</ul>\n</body></html>\n");
@@ -254,9 +282,18 @@ async fn html(State(state): State<Markets>) -> Response {
     let body = render(&view, OffsetDateTime::now_utc(), state.max_age);
     let mut response = body.into_response();
     let h = response.headers_mut();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-    h.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'none'"));
-    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }

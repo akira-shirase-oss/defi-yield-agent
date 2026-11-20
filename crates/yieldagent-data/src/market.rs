@@ -233,20 +233,104 @@ mod tests {
     #[test]
     fn every_field_has_its_named_refusal() {
         let cases: [(RawEntry<'static>, Refusal); 14] = [
-            (RawEntry { pool_id: None, ..good() }, Refusal::PoolIdMissing),
-            (RawEntry { pool_id: Some("a b"), ..good() }, Refusal::PoolIdInvalid),
-            (RawEntry { pool_id: Some("<script>"), ..good() }, Refusal::PoolIdInvalid),
-            (RawEntry { symbol: Some("x\"><USDC"), ..good() }, Refusal::SymbolInvalid),
-            (RawEntry { apy: None, ..good() }, Refusal::ApyMissing),
-            (RawEntry { apy: Some("\"4.2\""), ..good() }, Refusal::ApyNotNumber),
-            (RawEntry { apy: Some("1e-29"), ..good() }, Refusal::ApyInexact),
-            (RawEntry { apy: Some("-0.01"), ..good() }, Refusal::ApyNegative),
-            (RawEntry { apy: Some("448575.06523"), ..good() }, Refusal::ApyImplausible),
-            (RawEntry { tvl_usd: None, ..good() }, Refusal::TvlMissing),
-            (RawEntry { tvl_usd: Some("true"), ..good() }, Refusal::TvlNotNumber),
-            (RawEntry { tvl_usd: Some("1e29"), ..good() }, Refusal::TvlInexact),
-            (RawEntry { tvl_usd: Some("-1"), ..good() }, Refusal::TvlNegative),
-            (RawEntry { tvl_usd: Some("1000000000001"), ..good() }, Refusal::TvlImplausible),
+            (
+                RawEntry {
+                    pool_id: None,
+                    ..good()
+                },
+                Refusal::PoolIdMissing,
+            ),
+            (
+                RawEntry {
+                    pool_id: Some("a b"),
+                    ..good()
+                },
+                Refusal::PoolIdInvalid,
+            ),
+            (
+                RawEntry {
+                    pool_id: Some("<script>"),
+                    ..good()
+                },
+                Refusal::PoolIdInvalid,
+            ),
+            (
+                RawEntry {
+                    symbol: Some("x\"><USDC"),
+                    ..good()
+                },
+                Refusal::SymbolInvalid,
+            ),
+            (
+                RawEntry {
+                    apy: None,
+                    ..good()
+                },
+                Refusal::ApyMissing,
+            ),
+            (
+                RawEntry {
+                    apy: Some("\"4.2\""),
+                    ..good()
+                },
+                Refusal::ApyNotNumber,
+            ),
+            (
+                RawEntry {
+                    apy: Some("1e-29"),
+                    ..good()
+                },
+                Refusal::ApyInexact,
+            ),
+            (
+                RawEntry {
+                    apy: Some("-0.01"),
+                    ..good()
+                },
+                Refusal::ApyNegative,
+            ),
+            (
+                RawEntry {
+                    apy: Some("448575.06523"),
+                    ..good()
+                },
+                Refusal::ApyImplausible,
+            ),
+            (
+                RawEntry {
+                    tvl_usd: None,
+                    ..good()
+                },
+                Refusal::TvlMissing,
+            ),
+            (
+                RawEntry {
+                    tvl_usd: Some("true"),
+                    ..good()
+                },
+                Refusal::TvlNotNumber,
+            ),
+            (
+                RawEntry {
+                    tvl_usd: Some("1e29"),
+                    ..good()
+                },
+                Refusal::TvlInexact,
+            ),
+            (
+                RawEntry {
+                    tvl_usd: Some("-1"),
+                    ..good()
+                },
+                Refusal::TvlNegative,
+            ),
+            (
+                RawEntry {
+                    tvl_usd: Some("1000000000001"),
+                    ..good()
+                },
+                Refusal::TvlImplausible,
+            ),
         ];
         for (raw, want) in cases {
             assert_eq!(validate(&raw), Err(want), "{raw:?}");
@@ -255,13 +339,46 @@ mod tests {
 
     #[test]
     fn the_boundaries_are_inclusive() {
-        assert!(validate(&RawEntry { apy: Some("100"), ..good() }).is_ok());
-        assert!(validate(&RawEntry { apy: Some("0"), ..good() }).is_ok());
-        assert!(validate(&RawEntry { apy: Some("-0"), ..good() }).is_ok());
-        assert!(validate(&RawEntry { tvl_usd: Some("1000000000000"), ..good() }).is_ok());
-        assert!(validate(&RawEntry { pool_id: Some(&"a".repeat(MAX_ID_LEN)), ..good() }).is_ok());
+        assert!(
+            validate(&RawEntry {
+                apy: Some("100"),
+                ..good()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&RawEntry {
+                apy: Some("0"),
+                ..good()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&RawEntry {
+                apy: Some("-0"),
+                ..good()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&RawEntry {
+                tvl_usd: Some("1000000000000"),
+                ..good()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate(&RawEntry {
+                pool_id: Some(&"a".repeat(MAX_ID_LEN)),
+                ..good()
+            })
+            .is_ok()
+        );
         assert_eq!(
-            validate(&RawEntry { pool_id: Some(&"a".repeat(MAX_ID_LEN + 1)), ..good() }),
+            validate(&RawEntry {
+                pool_id: Some(&"a".repeat(MAX_ID_LEN + 1)),
+                ..good()
+            }),
             Err(Refusal::PoolIdInvalid)
         );
     }
@@ -269,11 +386,41 @@ mod tests {
     #[test]
     fn selection_matches_the_allowlist_exactly() {
         assert_eq!(selected(&good()), Some("aave-v3"));
-        assert_eq!(selected(&RawEntry { chain: Some("base"), ..good() }), None);
-        assert_eq!(selected(&RawEntry { chain: Some("Ethereum"), ..good() }), None);
-        assert_eq!(selected(&RawEntry { protocol: Some("aave-v3x"), ..good() }), None);
-        assert_eq!(selected(&RawEntry { symbol: Some("WETH"), ..good() }), None);
-        assert_eq!(selected(&RawEntry { symbol: Some("steakUSDC"), ..good() }), Some("aave-v3"));
+        assert_eq!(
+            selected(&RawEntry {
+                chain: Some("base"),
+                ..good()
+            }),
+            None
+        );
+        assert_eq!(
+            selected(&RawEntry {
+                chain: Some("Ethereum"),
+                ..good()
+            }),
+            None
+        );
+        assert_eq!(
+            selected(&RawEntry {
+                protocol: Some("aave-v3x"),
+                ..good()
+            }),
+            None
+        );
+        assert_eq!(
+            selected(&RawEntry {
+                symbol: Some("WETH"),
+                ..good()
+            }),
+            None
+        );
+        assert_eq!(
+            selected(&RawEntry {
+                symbol: Some("steakUSDC"),
+                ..good()
+            }),
+            Some("aave-v3")
+        );
     }
 
     #[test]
@@ -281,7 +428,11 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for r in Refusal::ALL {
             assert!(seen.insert(r.code()));
-            assert!(r.code().bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+            assert!(
+                r.code()
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b == b'_')
+            );
             assert_eq!(serde_json::to_value(r).unwrap(), r.code());
         }
     }

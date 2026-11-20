@@ -1,6 +1,10 @@
 //! The live adapter against loopback fakes (each fault the network can hand it), and the
 //! real source when network permission is given (`YIELDAGENT_LIVE_NETWORK=1`).
-#![expect(clippy::unwrap_used, clippy::expect_used, reason = "integration test helpers")]
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "integration test helpers"
+)]
 
 use std::time::Duration;
 
@@ -80,7 +84,10 @@ async fn a_good_answer_is_returned_whole() {
 
 #[tokio::test]
 async fn a_body_past_the_cap_is_refused_declared_or_streamed() {
-    let declared = serve(Fake::Answer("HTTP/1.1 200 OK\r\ncontent-length: 99999999\r\n\r\n{")).await;
+    let declared = serve(Fake::Answer(
+        "HTTP/1.1 200 OK\r\ncontent-length: 99999999\r\n\r\n{",
+    ))
+    .await;
     assert_eq!(fetch(&declared).await, Err(FetchError::TooLarge));
     let streamed = serve(Fake::Chunked(MAX_BODY * 4)).await;
     assert_eq!(fetch(&streamed).await, Err(FetchError::TooLarge));
@@ -96,7 +103,10 @@ async fn a_silent_source_times_out_at_the_deadline() {
 
 #[tokio::test]
 async fn errors_and_encodings_are_named() {
-    let s = serve(Fake::Answer("HTTP/1.1 429 Too Many Requests\r\ncontent-length: 0\r\n\r\n")).await;
+    let s = serve(Fake::Answer(
+        "HTTP/1.1 429 Too Many Requests\r\ncontent-length: 0\r\n\r\n",
+    ))
+    .await;
     assert_eq!(fetch(&s).await, Err(FetchError::Status(429)));
     let s = serve(Fake::Answer(
         "HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\ncontent-length: 2\r\n\r\n{}",
@@ -108,20 +118,41 @@ async fn errors_and_encodings_are_named() {
     let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = closed.local_addr().unwrap();
     drop(closed);
-    let s = LiveSource::new("defillama", Target::parse(&format!("http://{addr}/")).unwrap(), DEADLINE, MAX_BODY);
+    let s = LiveSource::new(
+        "defillama",
+        Target::parse(&format!("http://{addr}/")).unwrap(),
+        DEADLINE,
+        MAX_BODY,
+    );
     assert_eq!(fetch(&s).await, Err(FetchError::Connect));
 }
 
 #[tokio::test]
 async fn the_live_source_parses_when_network_is_permitted() {
     if std::env::var("YIELDAGENT_LIVE_NETWORK").as_deref() != Ok("1") {
-        println!("skipped: the live DefiLlama fetch needs YIELDAGENT_LIVE_NETWORK=1 (network permission)");
+        println!(
+            "skipped: the live DefiLlama fetch needs YIELDAGENT_LIVE_NETWORK=1 (network permission)"
+        );
         return;
     }
     let target = Target::parse("https://yields.llama.fi/pools").unwrap();
-    let s = LiveSource::new("defillama", target, Duration::from_secs(30), 64 * 1024 * 1024);
-    let body = tokio::time::timeout(Duration::from_secs(60), s.fetch()).await.unwrap().unwrap();
+    let s = LiveSource::new(
+        "defillama",
+        target,
+        Duration::from_secs(30),
+        64 * 1024 * 1024,
+    );
+    let body = tokio::time::timeout(Duration::from_secs(60), s.fetch())
+        .await
+        .unwrap()
+        .unwrap();
     let p = defillama::parse(&body).unwrap();
-    println!("live: {} entries, {} selected, {} kept, refusals {:?}", p.entries, p.selected, p.markets.len(), p.refusals);
+    println!(
+        "live: {} entries, {} selected, {} kept, refusals {:?}",
+        p.entries,
+        p.selected,
+        p.markets.len(),
+        p.refusals
+    );
     assert_ne!(p.markets.len(), 0);
 }
