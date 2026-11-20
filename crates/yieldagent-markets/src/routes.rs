@@ -134,6 +134,7 @@ pub fn parse_history_query(raw: Option<&str>) -> Result<HistoryQuery, QueryRefus
         before: None,
     };
     let raw = raw.unwrap_or("");
+    // LIMIT(query-length)
     if raw.len() > 256 {
         return Err(("query_too_long", "the query string is too long"));
     }
@@ -164,6 +165,7 @@ pub fn parse_history_query(raw: Option<&str>) -> Result<HistoryQuery, QueryRefus
 }
 
 fn pool_id_ok(id: &str) -> bool {
+    // LIMIT(path-pool-id)
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 

@@ -67,6 +67,8 @@ mutations=(
   "worker-fetch-deadline|crates/yieldagent-markets/src/worker.rs|settings\.fetch_deadline=>Duration::from_secs(3600)|yieldagent-markets|worker|a_hanging_source_is_cut_at_the_worker_deadline_and_stored_down"
   "no-markets-is-down|crates/yieldagent-markets/src/worker.rs|return round;=>{}|yieldagent-markets|worker|a_down_source_stores_a_down_round_and_no_snapshot_and_keeps_the_last_good"
   "write-attempts|crates/yieldagent-markets/src/worker.rs|1\.\.=attempts=>1..|yieldagent-markets|worker|an_unreachable_database_ends_the_round_after_its_bounded_attempts"
+  "query-length|crates/yieldagent-markets/src/routes.rs|> 256=>> usize::MAX|yieldagent-markets|routes|history_is_newest_first_bounded_and_refuses_bad_queries_by_name"
+  "path-pool-id|crates/yieldagent-markets/src/routes.rs|^.*$=>    true|yieldagent-markets|routes|history_is_newest_first_bounded_and_refuses_bad_queries_by_name"
 )
 
 # Every marker in the source has exactly one mutation, and every mutation a marker.
