@@ -19,7 +19,7 @@ pub const MAX_APY_PERCENT: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
 /// Largest plausible TVL in USD (a trillion); above it, `tvl_implausible`.
 pub const MAX_TVL_USD: Decimal = Decimal::from_parts(3_567_587_328, 232, 0, false, 0);
 /// Longest pool id and symbol kept.
-pub const MAX_ID_LEN: usize = 64; // LIMIT(id-length)
+pub const MAX_ID_LEN: usize = 64;
 pub const MAX_SYMBOL_LEN: usize = 32;
 
 /// Why one source entry was refused. The code is stable: it is stored and served.
@@ -127,6 +127,7 @@ pub fn selected(raw: &RawEntry<'_>) -> Option<&'static str> {
 
 fn pool_id_ok(id: &str) -> bool {
     !id.is_empty()
+        // LIMIT(id-length)
         && id.len() <= MAX_ID_LEN
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') // LIMIT(pool-id-charset)
 }

@@ -150,6 +150,7 @@ mod tests {
 
     #[test]
     fn what_cannot_be_held_exactly_is_refused_not_rounded() {
+        assert_eq!(parse_exact(&"1".repeat(49)), Err(DecimalError::TooLong));
         assert_eq!(parse_exact("1e29"), Err(DecimalError::Inexact));
         assert_eq!(
             parse_exact("0.00000000000000000000000000001"),
