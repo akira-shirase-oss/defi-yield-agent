@@ -96,6 +96,14 @@ jobs:
         run: |
           eval "$(scripts/stack.sh env)"
           SCENARIO=markets MODE=full RATE=2000 scripts/load.sh
+      - name: Keep the run's JSON record (pass or miss)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: load-markets-full
+          path: perf/results/*-markets-full.json
+          if-no-files-found: error
+          retention-days: 90
 
   # The production path, end to end: the operator guide's install, check, upgrade and
   # rollback blocks run as written on an Ubuntu 24.04 VM with systemd
