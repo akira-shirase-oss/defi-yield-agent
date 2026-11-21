@@ -71,6 +71,8 @@ fn market_json(m: &Stored, now: OffsetDateTime, max_age: Duration) -> Value {
         "protocol": m.protocol,
         "symbol": m.symbol,
         "apy": m.apy.to_string(),
+        "apy_base": m.apy_base.to_string(),
+        "apy_reward": m.apy_reward.map(|r| r.to_string()),
         "tvl_usd": m.tvl_usd.to_string(),
         "observed_at": rfc3339(m.observed_at),
         "age_seconds": (now - m.observed_at).whole_seconds().max(0),

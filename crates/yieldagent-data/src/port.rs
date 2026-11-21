@@ -4,7 +4,9 @@
 use std::future::Future;
 use std::pin::Pin;
 
-pub type FetchFuture<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, FetchError>> + Send + 'a>>;
+pub use hyper::body::Bytes;
+
+pub type FetchFuture<'a> = Pin<Box<dyn Future<Output = Result<Bytes, FetchError>> + Send + 'a>>;
 
 /// A source of pool data.
 pub trait PoolSource: Send + Sync {

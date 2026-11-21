@@ -91,6 +91,8 @@ pub async fn record(pool: &PgPool, round: &Round) -> Result<Written, DbError> {
         let mut protocols = Vec::with_capacity(snapshots.len());
         let mut symbols = Vec::with_capacity(snapshots.len());
         let mut apys = Vec::with_capacity(snapshots.len());
+        let mut bases = Vec::with_capacity(snapshots.len());
+        let mut rewards = Vec::with_capacity(snapshots.len());
         let mut tvls = Vec::with_capacity(snapshots.len());
         let mut flags = Vec::with_capacity(snapshots.len());
         let mut checks = Vec::with_capacity(snapshots.len());
@@ -99,6 +101,8 @@ pub async fn record(pool: &PgPool, round: &Round) -> Result<Written, DbError> {
             protocols.push(s.market.protocol);
             symbols.push(s.market.symbol.as_str());
             apys.push(s.market.apy.to_string());
+            bases.push(s.market.apy_base.to_string());
+            rewards.push(s.market.apy_reward.map(|r| r.to_string()));
             tvls.push(s.market.tvl_usd.to_string());
             flags.push(
                 s.flags
@@ -111,12 +115,14 @@ pub async fn record(pool: &PgPool, round: &Round) -> Result<Written, DbError> {
         }
         sqlx::query(
             "INSERT INTO market_snapshots (round_id, pool_id, source, chain, protocol, symbol, apy,
-                                           tvl_usd, observed_at, flags, cross_check)
-             SELECT $1, u.pool_id, $2, 'Base', u.protocol, u.symbol, u.apy::numeric, u.tvl::numeric, $3,
+                                           apy_base, apy_reward, tvl_usd, observed_at, flags, cross_check)
+             SELECT $1, u.pool_id, $2, 'Base', u.protocol, u.symbol, u.apy::numeric,
+                    u.apy_base::numeric, u.apy_reward::numeric, u.tvl::numeric, $3,
                     CASE WHEN u.flags = '' THEN '{}'::text[] ELSE string_to_array(u.flags, ',') END,
                     u.cross_check
-               FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[])
-                    AS u (pool_id, protocol, symbol, apy, tvl, flags, cross_check)",
+               FROM unnest($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[],
+                           $10::text[], $11::text[], $12::text[])
+                    AS u (pool_id, protocol, symbol, apy, apy_base, apy_reward, tvl, flags, cross_check)",
         )
         .bind(round.id)
         .bind(round.source)
@@ -125,6 +131,8 @@ pub async fn record(pool: &PgPool, round: &Round) -> Result<Written, DbError> {
         .bind(&protocols)
         .bind(&symbols)
         .bind(&apys)
+        .bind(&bases)
+        .bind(&rewards)
         .bind(&tvls)
         .bind(&flags)
         .bind(&checks)
@@ -157,6 +165,8 @@ pub struct Stored {
     pub protocol: String,
     pub symbol: String,
     pub apy: Decimal,
+    pub apy_base: Decimal,
+    pub apy_reward: Option<Decimal>,
     pub tvl_usd: Decimal,
     pub observed_at: OffsetDateTime,
     pub flags: Vec<String>,
@@ -181,14 +191,28 @@ type StoredRow = (
     String,
     String,
     String,
+    Option<String>,
+    String,
     OffsetDateTime,
     Vec<String>,
     String,
 );
 
 fn stored(row: StoredRow) -> Result<Stored, DbError> {
-    let (round_id, source, pool_id, protocol, symbol, apy, tvl, observed_at, flags, cross_check) =
-        row;
+    let (
+        round_id,
+        source,
+        pool_id,
+        protocol,
+        symbol,
+        apy,
+        apy_base,
+        apy_reward,
+        tvl,
+        observed_at,
+        flags,
+        cross_check,
+    ) = row;
     let decimal = |s: &str| {
         s.parse::<Decimal>()
             .map(|d| d.normalize())
@@ -201,6 +225,8 @@ fn stored(row: StoredRow) -> Result<Stored, DbError> {
         protocol,
         symbol,
         apy: decimal(&apy)?,
+        apy_base: decimal(&apy_base)?,
+        apy_reward: apy_reward.as_deref().map(decimal).transpose()?,
         tvl_usd: decimal(&tvl)?,
         observed_at,
         flags,
@@ -210,7 +236,7 @@ fn stored(row: StoredRow) -> Result<Stored, DbError> {
 
 macro_rules! stored_columns {
     () => {
-        "round_id, source, pool_id, protocol, symbol, apy::text, tvl_usd::text, observed_at, flags, cross_check"
+        "round_id, source, pool_id, protocol, symbol, apy::text, apy_base::text, apy_reward::text, tvl_usd::text, observed_at, flags, cross_check"
     };
 }
 
@@ -218,40 +244,48 @@ fn u32_of(n: i32) -> u32 {
     u32::try_from(n).unwrap_or(0)
 }
 
-/// The last round of each source, and the snapshots of each source's last good round.
 /// The latest state: each source's last round, its last good round, and those snapshots.
 pub type Latest = (Vec<LastRound>, Vec<(String, OffsetDateTime)>, Vec<Stored>);
 
-pub async fn latest(pool: &PgPool) -> Result<Latest, DbError> {
-    let rounds: Vec<RoundRow> = sqlx::query_as(
-        "SELECT DISTINCT ON (source) source, observed_at, outcome, error_code, entries, selected, accepted, refusals
-           FROM market_rounds ORDER BY source, observed_at DESC, round_id DESC",
-    )
-    .fetch_all(pool)
-    .await?;
-    let last = rounds
-        .into_iter()
-        .map(
-            |(source, observed_at, outcome, error_code, entries, selected, accepted, refusals)| {
-                LastRound {
-                    source,
-                    observed_at,
-                    ok: outcome == "ok",
-                    error_code,
-                    entries: u32_of(entries),
-                    selected: u32_of(selected),
-                    accepted: u32_of(accepted),
-                    refusals: serde_json::from_value(refusals).unwrap_or_default(),
-                }
-            },
+/// The latest state of each of `sources`: one `LIMIT 1` index read per source and question,
+/// so the cost does not grow with the stored history.
+pub async fn latest(pool: &PgPool, sources: &[&str]) -> Result<Latest, DbError> {
+    let mut last = Vec::with_capacity(sources.len());
+    let mut good = Vec::with_capacity(sources.len());
+    for name in sources {
+        let round: Option<RoundRow> = sqlx::query_as(
+            "SELECT source, observed_at, outcome, error_code, entries, selected, accepted, refusals
+               FROM market_rounds WHERE source = $1
+              ORDER BY observed_at DESC, round_id DESC LIMIT 1",
         )
-        .collect();
-    let good: Vec<(Uuid, String, OffsetDateTime)> = sqlx::query_as(
-        "SELECT DISTINCT ON (source) round_id, source, observed_at
-           FROM market_rounds WHERE outcome = 'ok' ORDER BY source, observed_at DESC, round_id DESC",
-    )
-    .fetch_all(pool)
-    .await?;
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+        let Some((source, observed_at, outcome, error_code, entries, selected, accepted, refusals)) =
+            round
+        else {
+            continue;
+        };
+        last.push(LastRound {
+            source,
+            observed_at,
+            ok: outcome == "ok",
+            error_code,
+            entries: u32_of(entries),
+            selected: u32_of(selected),
+            accepted: u32_of(accepted),
+            refusals: serde_json::from_value(refusals).unwrap_or_default(),
+        });
+        let ok: Option<(Uuid, String, OffsetDateTime)> = sqlx::query_as(
+            "SELECT round_id, source, observed_at FROM market_rounds
+              WHERE source = $1 AND outcome = 'ok'
+              ORDER BY observed_at DESC, round_id DESC LIMIT 1",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+        good.extend(ok);
+    }
     let ids: Vec<Uuid> = good.iter().map(|g| g.0).collect();
     let rows: Vec<StoredRow> = sqlx::query_as(concat!(
         "SELECT ",
@@ -269,20 +303,26 @@ pub async fn latest(pool: &PgPool) -> Result<Latest, DbError> {
     ))
 }
 
-/// The last `window` APYs of every pool seen in the last day, oldest first (the spike
-/// check's moving average after a restart).
+/// The last `window` unflagged base APYs of each of `pools` in the last day, oldest first:
+/// the spike check's baseline after a restart. A flagged APY never joins it, or a sustained
+/// wrong value would become its own baseline.
 pub async fn recent_apys(
     pool: &PgPool,
+    pools: &[&str],
     window: usize,
 ) -> Result<BTreeMap<String, Vec<Decimal>>, DbError> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT pool_id, apy::text FROM (
-             SELECT pool_id, apy, observed_at,
+    let rows: Vec<(String, String)> = sqlx::query_as(concat!(
+        "SELECT pool_id, apy_base::text FROM (
+             SELECT pool_id, apy_base, observed_at,
                     row_number() OVER (PARTITION BY pool_id ORDER BY observed_at DESC, round_id DESC) AS n
-               FROM market_snapshots WHERE observed_at > now() - interval '1 day') t
-          WHERE n <= $1 ORDER BY pool_id, observed_at",
-    )
+               FROM market_snapshots
+              WHERE pool_id = ANY($2) AND observed_at > now() - interval '1 day'",
+        // LIMIT(spike-baseline-sql)
+        " AND cardinality(flags) = 0",
+        ") t WHERE n <= $1 ORDER BY pool_id, observed_at"
+    ))
     .bind(i64::try_from(window).unwrap_or(i64::MAX))
+    .bind(pools)
     .fetch_all(pool)
     .await?;
     let mut out: BTreeMap<String, Vec<Decimal>> = BTreeMap::new();

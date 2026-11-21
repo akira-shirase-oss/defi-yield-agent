@@ -11,9 +11,9 @@ use crate::market::Market;
 /// `END_GOAL` Case 5: an APY above this multiple of its moving average is suspect.
 pub const SPIKE_MULTIPLIER: Decimal = Decimal::from_parts(3, 0, 0, false, 0);
 /// Rounds in the moving average.
-pub const AVERAGE_WINDOW: usize = 12;
+pub const AVERAGE_WINDOW: usize = 12; // LIMIT(spike-window)
 /// Fewest prior rounds before a spike can be judged; with fewer, no flag.
-pub const MIN_HISTORY: usize = 3;
+pub const MIN_HISTORY: usize = 3; // LIMIT(min-history)
 /// `END_GOAL` Case 5: a snapshot older than this is suspect.
 pub const DEFAULT_MAX_AGE: Duration = Duration::minutes(15);
 
@@ -151,6 +151,21 @@ mod tests {
     }
 
     #[test]
+    fn the_average_is_of_the_last_twelve_rounds_and_needs_three() {
+        let mut old_high = vec![d("100")];
+        old_high.extend([d("1"); 12]);
+        assert!(
+            is_spike(d("3.5"), &old_high),
+            "a round older than the last twelve is out of the average"
+        );
+        assert!(
+            !is_spike(d("100"), &[d("1"), d("1")]),
+            "two rounds judge nothing"
+        );
+        assert!(is_spike(d("100"), &[d("1"), d("1"), d("1")]));
+    }
+
+    #[test]
     fn a_spike_is_judged_against_the_moving_average_exactly() {
         let h = [d("4"), d("4"), d("4")];
         assert!(!is_spike(d("12"), &h), "exactly 3x is not over 3x");
@@ -201,6 +216,8 @@ mod tests {
             protocol: "aave-v3",
             symbol: "USDC".into(),
             apy: d("4"),
+            apy_base: d("4"),
+            apy_reward: None,
             tvl_usd: d("1"),
         };
         assert_eq!(NoChainReads.cross_check(&m), CrossCheck::Unavailable);

@@ -52,6 +52,15 @@ mutations=(
   "source-body|crates/yieldagent-data/src/live.rs|self\.max_body\)=>usize::MAX)|yieldagent-data|live_source|a_body_past_the_cap_is_refused_declared_or_streamed"
   "fetch-deadline|crates/yieldagent-data/src/live.rs|self\.deadline=>std::time::Duration::from_secs(3600)|yieldagent-data|live_source|a_silent_source_times_out_at_the_deadline"
   "entry-count|crates/yieldagent-data/src/defillama.rs|= 100_000;=>= 1_000_000_000;|yieldagent-data|defillama|the_entry_count_is_capped"
+  "market-count|crates/yieldagent-data/src/defillama.rs|valid\.len\(\) >= MAX_MARKETS=>false|yieldagent-data|defillama|a_body_past_the_market_cap_is_refused_whole"
+  "pool-allowlist|crates/yieldagent-data/src/market.rs|\*id == pool_id && =>|yieldagent-data|lib|market::tests::only_a_pinned_pool_of_exactly_usdc_is_kept"
+  "underlying-usdc|crates/yieldagent-data/src/market.rs|t\.eq_ignore_ascii_case\(USDC_BASE\)=>!t.is_empty()|yieldagent-data|defillama|a_pinned_pool_is_kept_only_while_its_underlying_token_is_exactly_usdc"
+  "min-history|crates/yieldagent-data/src/screen.rs|= 3;=>= 0;|yieldagent-data|lib|screen::tests::the_average_is_of_the_last_twelve_rounds_and_needs_three"
+  "spike-window|crates/yieldagent-data/src/screen.rs|= 12;=>= 1_000;|yieldagent-data|lib|screen::tests::the_average_is_of_the_last_twelve_rounds_and_needs_three"
+  "spike-baseline|crates/yieldagent-markets/src/board.rs|s\.flags\.is_empty\(\)=>true|yieldagent-markets|worker|a_sustained_spike_stays_flagged_and_never_becomes_its_own_baseline"
+  "spike-baseline-sql|crates/yieldagent-markets/src/store.rs| AND cardinality\(flags\) = 0=>|yieldagent-markets|worker|a_sustained_spike_stays_flagged_and_never_becomes_its_own_baseline"
+  "recent-eviction|crates/yieldagent-markets/src/board.rs|snapshots\.iter\(\)\.any\(.s. s\.market\.pool_id == \*id\)=>!id.is_empty()|yieldagent-markets|worker|a_pool_gone_from_the_last_good_round_leaves_the_recent_history"
+  "snapshot-age-cap|crates/yieldagent-server/src/config.rs|60\.\.=900=>60..=86_400|yieldagent-server|lib|config::tests::the_snapshot_age_cannot_be_set_past_case_5s_fifteen_minutes"
   "duplicate-pool|crates/yieldagent-data/src/defillama.rs|^.*$=>parsed.markets.push(m);|yieldagent-data|defillama|every_hostile_entry_is_refused_by_name_and_only_the_good_one_kept"
   "number-length|crates/yieldagent-data/src/decimal.rs|= 48;=>= 4096;|yieldagent-data|lib|decimal::tests::what_cannot_be_held_exactly_is_refused_not_rounded"
   "id-length|crates/yieldagent-data/src/market.rs|<= MAX_ID_LEN=><= usize::MAX|yieldagent-data|lib|market::tests::the_boundaries_are_inclusive"
@@ -109,7 +118,10 @@ for row in "${mutations[@]}"; do
   replacement="${subst#*=>}"
   cp "$here/$file" "$work/$file"
   mutate "$file" "$name" "$pattern" "$replacement"
-  if [ "$target" = lib ]; then selector=(--lib); else selector=(--test "$target"); fi
+  case "$target" in
+    lib) selector=(--lib) ;;
+    *) selector=(--test "$target") ;;
+  esac
   started=$(date +%s)
   set +e
   output="$(cd "$work" && cargo test --locked -q -p "$package" "${selector[@]}" -- --exact "$test" 2>&1)"

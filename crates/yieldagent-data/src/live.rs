@@ -132,7 +132,7 @@ impl LiveSource {
         }
     }
 
-    async fn get(&self) -> Result<Vec<u8>, FetchError> {
+    async fn get(&self) -> Result<Bytes, FetchError> {
         let tcp = TcpStream::connect((self.target.host.as_str(), self.target.port))
             .await
             .map_err(|_| FetchError::Connect)?;
@@ -150,7 +150,7 @@ impl LiveSource {
         }
     }
 
-    async fn exchange<I>(&self, io: I) -> Result<Vec<u8>, FetchError>
+    async fn exchange<I>(&self, io: I) -> Result<Bytes, FetchError>
     where
         I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
     {
@@ -200,7 +200,7 @@ impl LiveSource {
                     FetchError::Protocol
                 }
             })?;
-        Ok(body.to_bytes().to_vec())
+        Ok(body.to_bytes())
     }
 }
 

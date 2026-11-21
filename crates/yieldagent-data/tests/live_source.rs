@@ -66,7 +66,7 @@ async fn serve(fake: Fake) -> LiveSource {
     LiveSource::new("defillama", target, DEADLINE, MAX_BODY)
 }
 
-async fn fetch(source: &LiveSource) -> Result<Vec<u8>, FetchError> {
+async fn fetch(source: &LiveSource) -> Result<yieldagent_data::port::Bytes, FetchError> {
     tokio::time::timeout(GUARD, source.fetch())
         .await
         .expect("the adapter's own deadline must end the fetch")

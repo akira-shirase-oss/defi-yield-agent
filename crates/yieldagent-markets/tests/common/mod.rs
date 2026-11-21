@@ -16,13 +16,24 @@ pub const RECORDED: &[u8] =
 pub const HOSTILE: &[u8] =
     include_bytes!("../../../yieldagent-data/tests/fixtures/defillama-hostile.json");
 pub const AAVE: &str = "7e0661bf-8cf3-45e6-9424-31916d4c7b84";
+pub const COMPOUND: &str = "0c8567f8-ba5b-41ad-80de-00a71895eb19";
+pub const USDC: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
-/// A body with one Base USDC market per `(pool, apy)`.
+/// A body with one Base USDC market per `(pool, apy)`; the APY is all base, no reward.
 pub fn body(markets: &[(&str, &str)]) -> Vec<u8> {
+    let with_reward: Vec<(&str, &str, &str, &str)> =
+        markets.iter().map(|(p, a)| (*p, *a, *a, "null")).collect();
+    body_with_reward(&with_reward)
+}
+
+/// A body with one Base USDC market per `(pool, apy, apy_base, apy_reward)`, `apy` being
+/// the source's own total.
+pub fn body_with_reward(markets: &[(&str, &str, &str, &str)]) -> Vec<u8> {
     let data: Vec<String> = markets
         .iter()
-        .map(|(pool, apy)| {
-            format!("{{\"pool\":\"{pool}\",\"chain\":\"Base\",\"project\":\"aave-v3\",\"symbol\":\"USDC\",\"apy\":{apy},\"tvlUsd\":1000000}}")
+        .map(|(pool, total, base, reward)| {
+            let project = if *pool == COMPOUND { "compound-v3" } else { "aave-v3" };
+            format!("{{\"pool\":\"{pool}\",\"chain\":\"Base\",\"project\":\"{project}\",\"symbol\":\"USDC\",\"apy\":{total},\"apyBase\":{base},\"apyReward\":{reward},\"tvlUsd\":1000000,\"underlyingTokens\":[\"{USDC}\"]}}")
         })
         .collect();
     format!("{{\"status\":\"success\",\"data\":[{}]}}", data.join(",")).into_bytes()

@@ -6,7 +6,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{AAVE, HOSTILE, RECORDED, body, count, ports, settings};
+use common::{AAVE, COMPOUND, HOSTILE, RECORDED, body, body_with_reward, count, ports, settings};
 use time::OffsetDateTime;
 use yieldagent_data::Decimal;
 use yieldagent_data::market::Market;
@@ -37,7 +37,7 @@ async fn a_round_is_stored_whole_once_and_a_retry_changes_nothing() {
     );
     assert_eq!(
         (count(&pool, ROUNDS).await, count(&pool, SNAPSHOTS).await),
-        (1, 30)
+        (1, 6)
     );
     // The same round again (a retry after a lost commit acknowledgement): nothing changes.
     assert_eq!(
@@ -46,7 +46,7 @@ async fn a_round_is_stored_whole_once_and_a_retry_changes_nothing() {
     );
     assert_eq!(
         (count(&pool, ROUNDS).await, count(&pool, SNAPSHOTS).await),
-        (1, 30)
+        (1, 6)
     );
     let apy: String =
         sqlx::query_scalar("SELECT apy::text FROM market_snapshots WHERE pool_id = $1")
@@ -82,7 +82,7 @@ async fn hostile_entries_are_refused_by_name_and_the_counts_stored() {
         .fetch_all(&pool)
         .await
         .unwrap();
-    assert_eq!(ids, ["aaaaaaaa-0000-0000-0000-000000000001"]);
+    assert_eq!(ids, ["7e0661bf-8cf3-45e6-9424-31916d4c7b84"]);
     db.cleanup().await;
 }
 
@@ -118,7 +118,7 @@ async fn a_down_source_stores_a_down_round_and_no_snapshot_and_keeps_the_last_go
         assert_eq!(stored, ("down".to_owned(), Some(code.to_owned()), 0));
         assert_eq!(
             count(&pool, SNAPSHOTS).await,
-            30,
+            6,
             "{code}: no snapshot invented"
         );
         let view = board.view();
@@ -217,6 +217,8 @@ fn market(apy: &str) -> Snapshot {
             protocol: "aave-v3",
             symbol: "USDC".into(),
             apy: apy.parse::<Decimal>().unwrap(),
+            apy_base: apy.parse::<Decimal>().unwrap(),
+            apy_reward: None,
             tvl_usd: Decimal::ONE,
         },
         flags: vec![],
@@ -347,6 +349,130 @@ async fn the_board_rebuilt_after_a_crash_equals_the_board_before() {
     assert_eq!(
         b.sources["defillama"].last.error_code.as_deref(),
         Some("timeout")
+    );
+    db.cleanup().await;
+}
+
+/// Each APY in `apys` as one stored round of `AAVE`; the APYs stored flagged, in order.
+async fn flagged_after(pool: &sqlx::PgPool, board: &Board, apys: &[&str]) -> Vec<String> {
+    let (source, ports) = ports(vec![]);
+    for apy in apys {
+        source.script([Step::Body(body(&[(AAVE, apy)]))]);
+        let round = fetch_round(&ports, board, &settings()).await;
+        store_round(pool, board, &round, &settings()).await.unwrap();
+    }
+    sqlx::query_scalar(
+        "SELECT apy::text FROM market_snapshots WHERE flags = '{apy_spike}' ORDER BY observed_at, round_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_sustained_spike_stays_flagged_and_never_becomes_its_own_baseline() {
+    let db = TestDb::new().await;
+    let pool = db.connect_as(Role::Runtime).await;
+    let board = Board::default();
+    let mut apys = vec!["4"; 12];
+    apys.extend(["13"; 4]);
+    assert_eq!(
+        flagged_after(&pool, &board, &apys).await,
+        ["13", "13", "13", "13"],
+        "a flagged APY must not enter the average it is judged against"
+    );
+    let restarted = Board::default();
+    restarted.load(&pool).await.unwrap();
+    assert_eq!(
+        flagged_after(&pool, &restarted, &["13"]).await.len(),
+        5,
+        "nor the history a restart rebuilds the average from"
+    );
+    db.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_ramp_of_two_point_nine_times_a_round_is_flagged_from_its_second_step() {
+    let db = TestDb::new().await;
+    let pool = db.connect_as(Role::Runtime).await;
+    let board = Board::default();
+    let flagged = flagged_after(&pool, &board, &["4", "4", "4", "11.6", "33.64", "97.556"]).await;
+    assert_eq!(
+        flagged,
+        ["33.64", "97.556"],
+        "11.6 is 2.9x the average of 4s, not over 3x"
+    );
+    db.cleanup().await;
+}
+
+#[tokio::test]
+async fn a_pool_gone_from_the_last_good_round_leaves_the_recent_history() {
+    let db = TestDb::new().await;
+    let pool = db.connect_as(Role::Runtime).await;
+    let board = Board::default();
+    let (source, ports) = ports(vec![]);
+    for markets in [&[(AAVE, "4"), (COMPOUND, "3")][..], &[(COMPOUND, "3")]] {
+        source.script([Step::Body(body(markets))]);
+        let round = fetch_round(&ports, &board, &settings()).await;
+        store_round(&pool, &board, &round, &settings())
+            .await
+            .unwrap();
+    }
+    let keys: Vec<String> = board.view().recent.keys().cloned().collect();
+    assert_eq!(
+        keys,
+        [COMPOUND],
+        "the board holds history only for the pools it shows"
+    );
+    let restarted = Board::default();
+    restarted.load(&pool).await.unwrap();
+    let keys: Vec<String> = restarted.view().recent.keys().cloned().collect();
+    assert_eq!(
+        keys,
+        [COMPOUND],
+        "and so does the board rebuilt from the store"
+    );
+    db.cleanup().await;
+}
+
+#[tokio::test]
+async fn the_spike_check_reads_the_base_apy_and_the_reward_is_stored_apart() {
+    let db = TestDb::new().await;
+    let pool = db.connect_as(Role::Runtime).await;
+    let board = Board::default();
+    let (source, ports) = ports(vec![]);
+    for (total, base, reward) in [
+        ("4", "4", "0"),
+        ("4", "4", "0"),
+        ("4", "4", "0"),
+        ("40", "4", "36"),
+        ("13", "13", "null"),
+    ] {
+        source.script([Step::Body(body_with_reward(&[(AAVE, total, base, reward)]))]);
+        let round = fetch_round(&ports, &board, &settings()).await;
+        store_round(&pool, &board, &round, &settings())
+            .await
+            .unwrap();
+    }
+    let rows: Vec<(String, String, Option<String>, Vec<String>)> = sqlx::query_as(
+        "SELECT apy::text, apy_base::text, apy_reward::text, flags FROM market_snapshots ORDER BY observed_at, round_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let reward = &rows[3];
+    assert_eq!(
+        (reward.0.as_str(), reward.1.as_str(), reward.2.as_deref()),
+        ("40", "4", Some("36"))
+    );
+    assert!(
+        reward.3.is_empty(),
+        "a reward does not move the base APY plans read: {rows:?}"
+    );
+    assert_eq!(
+        rows[4].3,
+        ["apy_spike"],
+        "the base APY is what is judged: {rows:?}"
     );
     db.cleanup().await;
 }

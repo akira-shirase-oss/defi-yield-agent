@@ -21,7 +21,9 @@ CREATE TABLE market_rounds (
     CHECK ((outcome = 'ok') = (error_code IS NULL)),
     CHECK (outcome = 'ok' OR accepted = 0)
 );
-CREATE INDEX market_rounds_latest ON market_rounds (source, observed_at DESC);
+CREATE INDEX market_rounds_latest ON market_rounds (source, observed_at DESC, round_id DESC);
+CREATE INDEX market_rounds_latest_ok ON market_rounds (source, observed_at DESC, round_id DESC)
+    WHERE outcome = 'ok';
 
 CREATE TABLE market_snapshots (
     round_id uuid NOT NULL REFERENCES market_rounds (round_id),
@@ -31,6 +33,8 @@ CREATE TABLE market_snapshots (
     protocol text NOT NULL CHECK (protocol IN ('aave-v3', 'compound-v3', 'morpho-blue')),
     symbol text NOT NULL CHECK (symbol ~ '^[A-Za-z0-9.+_-]{1,32}$'),
     apy numeric NOT NULL CHECK (apy >= 0 AND apy <= 100),
+    apy_base numeric NOT NULL CHECK (apy_base >= 0 AND apy_base <= 100),
+    apy_reward numeric CHECK (apy_reward >= 0 AND apy_reward <= 100),
     tvl_usd numeric NOT NULL CHECK (tvl_usd >= 0 AND tvl_usd <= 1000000000000),
     observed_at timestamptz NOT NULL,
     flags text[] NOT NULL CHECK (flags <@ ARRAY['apy_spike']::text[]),

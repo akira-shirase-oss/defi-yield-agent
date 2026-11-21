@@ -20,6 +20,14 @@ use yieldagent_server::health::Health;
 use yieldagent_server::{AppState, app};
 
 async fn app_on(database_url: &str, ready: Duration) -> (axum::Router, Arc<ErrorWindow>) {
+    app_with(database_url, ready, None).await
+}
+
+async fn app_with(
+    database_url: &str,
+    ready: Duration,
+    worker: Option<tokio_util::sync::CancellationToken>,
+) -> (axum::Router, Arc<ErrorWindow>) {
     let settings = PoolSettings {
         acquire_timeout: Duration::from_secs(10),
         ..PoolSettings::default()
@@ -31,7 +39,12 @@ async fn app_on(database_url: &str, ready: Duration) -> (axum::Router, Arc<Error
         .unwrap();
     let router = app(AppState {
         accounts,
-        health: Health::new(pool.clone(), ready, errors.clone(), 50, 20),
+        health: match worker {
+            Some(stopped) => {
+                Health::new(pool.clone(), ready, errors.clone(), 50, 20).watch_worker(stopped)
+            }
+            None => Health::new(pool.clone(), ready, errors.clone(), 50, 20),
+        },
         errors: errors.clone(),
         stack: StackLimits::default(),
         max_in_flight: 64,
@@ -152,4 +165,24 @@ async fn errorz_alerts_only_above_the_threshold_with_enough_requests() {
         StatusCode::OK,
         "10 in 300 is below the threshold"
     );
+}
+
+#[tokio::test]
+async fn readyz_is_unready_once_the_market_worker_has_stopped() {
+    let db = yieldagent_db::testing::TestDb::new().await;
+    let url = db.url_as(yieldagent_db::testing::Role::Runtime);
+    let stopped = tokio_util::sync::CancellationToken::new();
+    let (router, _) = app_with(&url, Duration::from_secs(3), Some(stopped.clone())).await;
+    let (status, body) = get(&router, "/readyz").await;
+    assert_eq!(
+        (status, &body["market_worker"]),
+        (StatusCode::OK, &serde_json::json!("running")),
+        "{body}"
+    );
+    stopped.cancel();
+    let (status, body) = get(&router, "/readyz").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["market_worker"], "stopped");
+    assert_eq!(body["error"]["code"], "unready");
+    db.cleanup().await;
 }

@@ -1,5 +1,5 @@
 //! The `DefiLlama` yields `/pools` body: `{"status":"success","data":[{pool, chain, project,
-//! symbol, apy, tvlUsd, ...}, ...]}` (docs/KNOWLEDGE.md). Untrusted input: the body is
+//! symbol, apy, apyBase, apyReward, tvlUsd, underlyingTokens, ...}, ...]}` (docs/KNOWLEDGE.md). Untrusted input: the body is
 //! already capped by the adapter; here the entry count is capped, every number is read from
 //! its raw token, and every selected entry is validated or refused by name.
 
@@ -19,6 +19,10 @@ pub const SOURCE: &str = "defillama";
 /// Most entries read from one body; past it the whole body is refused `too_many_entries`.
 /// The live body had 14,893 at M1.
 pub const MAX_ENTRIES: usize = 100_000; // LIMIT(entry-count)
+/// Most valid markets read from one body; past it the whole body is refused
+/// `too_many_markets`. [`crate::market::ALLOWLIST`] pins six pools, so only a hostile body
+/// (one pool repeated) comes near it; it bounds what a round holds before de-duplication.
+pub const MAX_MARKETS: usize = 64;
 
 /// Why a whole body was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -29,6 +33,8 @@ pub enum BodyError {
     NotSuccess,
     #[error("more than {MAX_ENTRIES} entries")]
     TooManyEntries,
+    #[error("more than {MAX_MARKETS} valid markets")]
+    TooManyMarkets,
 }
 
 impl BodyError {
@@ -37,6 +43,7 @@ impl BodyError {
             Self::Malformed => "malformed_body",
             Self::NotSuccess => "source_not_success",
             Self::TooManyEntries => "too_many_entries",
+            Self::TooManyMarkets => "too_many_markets",
         }
     }
 }
@@ -76,8 +83,14 @@ struct Entry<'a> {
     symbol: Option<&'a RawValue>,
     #[serde(borrow, default)]
     apy: Option<&'a RawValue>,
+    #[serde(borrow, default, rename = "apyBase")]
+    apy_base: Option<&'a RawValue>,
+    #[serde(borrow, default, rename = "apyReward")]
+    apy_reward: Option<&'a RawValue>,
     #[serde(borrow, default, rename = "tvlUsd")]
     tvl_usd: Option<&'a RawValue>,
+    #[serde(borrow, default, rename = "underlyingTokens")]
+    underlying: Option<&'a RawValue>,
 }
 
 /// A sequence that stops with an error at [`MAX_ENTRIES`] instead of allocating past it.
@@ -151,14 +164,23 @@ pub fn parse(body: &[u8]) -> Result<Parsed, BodyError> {
             protocol: project.as_deref(),
             symbol: symbol.as_deref(),
             apy: token(entry.apy),
+            apy_base: token(entry.apy_base),
+            apy_reward: token(entry.apy_reward),
             tvl_usd: token(entry.tvl_usd),
+            underlying: token(entry.underlying),
         };
-        if selected(&raw).is_none() {
+        if !selected(&raw) {
             continue;
         }
         parsed.selected += 1;
         match validate(&raw) {
-            Ok(m) => valid.push(m),
+            Ok(m) => {
+                // LIMIT(market-count)
+                if valid.len() >= MAX_MARKETS {
+                    return Err(BodyError::TooManyMarkets);
+                }
+                valid.push(m);
+            }
             Err(r) => *parsed.refusals.entry(r).or_default() += 1,
         }
     }

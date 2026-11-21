@@ -68,7 +68,11 @@ async fn the_board_serves_exact_apys_and_marks_every_market_unplannable_in_m1() 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["sources"][0]["name"], "defillama");
     assert_eq!(v["sources"][0]["state"], "fresh");
-    assert_eq!(v["markets"].as_array().unwrap().len(), 30);
+    assert_eq!(
+        v["markets"].as_array().unwrap().len(),
+        6,
+        "the six pinned pools"
+    );
     let aave = v["markets"]
         .as_array()
         .unwrap()
@@ -231,6 +235,8 @@ async fn the_html_list_is_plain_and_escapes_everything_it_shows() {
         protocol: evil.to_owned(),
         symbol: evil.to_owned(),
         apy: "4.5".parse().unwrap(),
+        apy_base: "4.5".parse().unwrap(),
+        apy_reward: None,
         tvl_usd: "1".parse().unwrap(),
         observed_at: now,
         flags: vec![evil.to_owned()],

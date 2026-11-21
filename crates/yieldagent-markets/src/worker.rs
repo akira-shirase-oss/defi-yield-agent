@@ -120,7 +120,7 @@ pub async fn fetch_round(ports: &Ports, board: &Board, settings: &Settings) -> R
                 .map(|h| h.iter().copied().collect())
                 .unwrap_or_default();
             let mut flags = Vec::new();
-            if is_spike(market.apy, &history) {
+            if is_spike(market.apy_base, &history) {
                 flags.push(Flag::ApySpike);
             }
             let cross_check = ports.chain.cross_check(&market);

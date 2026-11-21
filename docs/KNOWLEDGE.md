@@ -186,8 +186,10 @@ the v2.0 spec without confirmation. Versions move quickly here; re-check them at
 - **DefiLlama `/pools` body, observed at M1 (2026-11):** `{"status":"success","data":[...]}`,
   14,893 entries, about 10 MB uncompressed; each entry has `pool` (a UUID string), `chain`
   (`"Base"`), `project` (`aave-v3`, `compound-v3`, `morpho-blue`), `symbol`, `apy` and
-  `tvlUsd` as JSON numbers (`apy` sometimes `null`). 30 entries matched Base + USDC + the
-  allowlist; the largest `apy` in the body was about 448,575 (percent), so a plausibility
+  `tvlUsd` as JSON numbers (`apy` sometimes `null`), plus `apyBase`, `apyReward` and
+  `underlyingTokens` (a list of token addresses). 30 entries matched Base + a `USDC` symbol +
+  the three projects, among them syrupUSDC (underlying `0x6609…00f5`) and a Compound
+  `WETH-pool` entry; six are pinned (D-007); the largest `apy` in the body was about 448,575 (percent), so a plausibility
   ceiling is required. Recorded subset: `crates/yieldagent-data/tests/fixtures/`.
 
 ## 7. Contracts toolchain

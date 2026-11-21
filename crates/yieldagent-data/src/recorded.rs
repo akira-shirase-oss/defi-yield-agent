@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use crate::port::{FetchError, FetchFuture, PoolSource};
+use crate::port::{Bytes, FetchError, FetchFuture, PoolSource};
 
 #[derive(Debug, Clone)]
 pub enum Step {
@@ -62,7 +62,7 @@ impl PoolSource for Recorded {
         let step = self.next();
         Box::pin(async move {
             match step {
-                Step::Body(b) => Ok(b),
+                Step::Body(b) => Ok(Bytes::from(b)),
                 Step::Fail(e) => Err(e),
                 Step::Hang => std::future::pending().await,
             }

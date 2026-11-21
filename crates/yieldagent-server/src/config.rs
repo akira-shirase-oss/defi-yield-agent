@@ -72,7 +72,7 @@ pub const VARIABLES: &[(&str, &str, &str)] = &[
         "33554432",
         "1048576..=134217728",
     ),
-    ("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "900", "60..=86400"),
+    ("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "900", "60..=900"),
     (
         "YIELDAGENT_ERROR_RATE_PERMILLE",
         "50",
@@ -416,7 +416,7 @@ impl Config {
             "YIELDAGENT_SOURCE_MAX_BODY_BYTES",
             1_048_576..=134_217_728,
         );
-        let snapshot_max_age = p.secs(source, "YIELDAGENT_SNAPSHOT_MAX_AGE_S", 60..=86_400);
+        let snapshot_max_age = p.secs(source, "YIELDAGENT_SNAPSHOT_MAX_AGE_S", 60..=900); // LIMIT(snapshot-age-cap)
         if fetch_timeout >= fetch_interval {
             p.0.push(
                 "YIELDAGENT_FETCH_TIMEOUT_MS must be below YIELDAGENT_FETCH_INTERVAL_S".to_owned(),
@@ -561,6 +561,24 @@ mod tests {
         let shown = format!("{config:?}");
         assert!(!shown.contains("pw@"), "{shown}");
         assert!(shown.contains("Secret(<redacted>)"));
+    }
+
+    #[test]
+    fn the_snapshot_age_cannot_be_set_past_case_5s_fifteen_minutes() {
+        let mut source = base();
+        source.insert("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "900");
+        assert_eq!(
+            Config::load(&source).unwrap().snapshot_max_age.as_secs(),
+            900
+        );
+        source.insert("YIELDAGENT_SNAPSHOT_MAX_AGE_S", "901");
+        let problems = Config::load(&source).unwrap_err();
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("YIELDAGENT_SNAPSHOT_MAX_AGE_S")),
+            "{problems:?}"
+        );
     }
 
     #[test]

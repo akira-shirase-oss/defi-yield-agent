@@ -86,11 +86,11 @@ status="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok
 pool=""
 if [ "$scenario" = markets ]; then
   for _ in $(seq 1 120); do
-    [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 30 ] && break
+    [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 6 ] && break
     sleep 0.25
   done
   pool="$(curl -fsS "$base/v1/markets" | jq -r '.markets[0].pool_id')"
-  [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 30 ] \
+  [ "$(curl -fsS "$base/v1/markets" | jq '.markets | length')" = 6 ] \
     || { echo "error: the worker did not store the recorded round" >&2; exit 1; }
 fi
 if $setup_only; then

@@ -6,6 +6,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use time::OffsetDateTime;
 use yieldagent_data::Decimal;
+use yieldagent_data::defillama::SOURCE;
 use yieldagent_data::screen::AVERAGE_WINDOW;
 
 use crate::store::{self, LastRound, Outcome, Round, Stored};
@@ -24,7 +25,9 @@ pub struct View {
     /// The markets of each source's last good round: never invented, never carried from a
     /// failed round. Their age is judged at read time.
     pub markets: Vec<Stored>,
-    /// The last [`AVERAGE_WINDOW`] APYs per pool, oldest first.
+    /// The last [`AVERAGE_WINDOW`] unflagged base APYs of each pool the board shows, oldest
+    /// first: the spike check's baseline. A pool gone from its source's last good round
+    /// leaves it, so the map is bounded by the markets one round can hold.
     pub recent: BTreeMap<String, VecDeque<Decimal>>,
 }
 
@@ -42,8 +45,9 @@ impl Board {
 
     /// Rebuilds the board from the store (start, and after a crash).
     pub async fn load(&self, pool: &sqlx::PgPool) -> Result<(), yieldagent_db::DbError> {
-        let (rounds, good, markets) = store::latest(pool).await?;
-        let recent = store::recent_apys(pool, AVERAGE_WINDOW).await?;
+        let (rounds, good, markets) = store::latest(pool, &[SOURCE]).await?;
+        let shown: Vec<&str> = markets.iter().map(|m| m.pool_id.as_str()).collect();
+        let recent = store::recent_apys(pool, &shown, AVERAGE_WINDOW).await?;
         let good: BTreeMap<String, OffsetDateTime> = good.into_iter().collect();
         let sources = rounds
             .into_iter()
@@ -96,9 +100,14 @@ impl Board {
         );
         if let Outcome::Ok(snapshots) = &round.outcome {
             view.markets.retain(|m| m.source != round.source);
+            view.recent
+                .retain(|id, _| snapshots.iter().any(|s| s.market.pool_id == *id)); // LIMIT(recent-eviction)
             for s in snapshots {
                 let recent = view.recent.entry(s.market.pool_id.clone()).or_default();
-                recent.push_back(s.market.apy);
+                // LIMIT(spike-baseline)
+                if s.flags.is_empty() {
+                    recent.push_back(s.market.apy_base);
+                }
                 while recent.len() > AVERAGE_WINDOW {
                     recent.pop_front();
                 }
@@ -109,6 +118,8 @@ impl Board {
                     protocol: s.market.protocol.to_owned(),
                     symbol: s.market.symbol.clone(),
                     apy: s.market.apy,
+                    apy_base: s.market.apy_base,
+                    apy_reward: s.market.apy_reward,
                     tvl_usd: s.market.tvl_usd,
                     observed_at: round.observed_at,
                     flags: s.flags.iter().map(|f| f.code().to_owned()).collect(),

@@ -85,6 +85,8 @@ proptest! {
         symbol in proptest::option::of("\\PC{0,40}"),
         apy in proptest::option::of("\\PC{0,50}"),
         tvl in proptest::option::of("\\PC{0,50}"),
+        reward in proptest::option::of("\\PC{0,50}"),
+        underlying in proptest::option::of("\\PC{0,200}"),
     ) {
         let raw = RawEntry {
             pool_id: pool.as_deref(),
@@ -92,10 +94,15 @@ proptest! {
             protocol: Some("aave-v3"),
             symbol: symbol.as_deref(),
             apy: apy.as_deref(),
+            apy_base: apy.as_deref(),
+            apy_reward: reward.as_deref(),
             tvl_usd: tvl.as_deref(),
+            underlying: underlying.as_deref(),
         };
         if let Ok(m) = validate(&raw) {
             prop_assert!(m.apy <= MAX_APY_PERCENT && !m.apy.is_sign_negative() || m.apy.is_zero());
+            prop_assert!(m.apy_reward.is_none_or(|r| r <= MAX_APY_PERCENT));
+            prop_assert!(underlying.as_deref().is_some_and(|u| u.to_ascii_lowercase().contains("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")));
             prop_assert_eq!(Some(m.apy), apy.as_deref().and_then(|a| Decimal::from_str(a).ok().map(|d| d.normalize())).or(Some(m.apy)));
         }
     }

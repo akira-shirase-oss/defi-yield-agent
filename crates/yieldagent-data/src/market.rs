@@ -11,8 +11,23 @@ pub const CHAIN: &str = "Base";
 /// The allowlisted lending markets, by the source's project name (`END_GOAL`: Aave v3,
 /// Morpho Blue, Compound v3 on Base). An entry of any other project is not selected.
 pub const PROTOCOLS: [&str; 3] = ["aave-v3", "compound-v3", "morpho-blue"];
-/// The stablecoin M1 tracks; an entry whose symbol does not end in it is not selected.
+/// The stablecoin M1 tracks; an entry of an allowlisted project whose symbol ends in it is
+/// read, and refused by name unless its pool is pinned in [`ALLOWLIST`].
 pub const ASSET: &str = "USDC";
+/// Native USDC on Base: a pinned pool's `underlyingTokens` must be exactly this one token.
+pub const USDC_BASE: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+/// The pools M1 tracks, by the source's pool id and the protocol it is pinned to. A symbol
+/// is not identity: anyone can name a vault `...USDC`, so only these pools are kept.
+pub const ALLOWLIST: [(&str, &str); 6] = [
+    ("7e0661bf-8cf3-45e6-9424-31916d4c7b84", "aave-v3"),
+    ("0c8567f8-ba5b-41ad-80de-00a71895eb19", "compound-v3"),
+    ("28470287-2c5b-5744-bc13-b9f1c0190b7b", "morpho-blue"),
+    ("a5fab52f-73fa-4f44-9c09-9af1eb20996c", "morpho-blue"),
+    ("ba68527f-8ec2-4c55-827a-8f4673ae047c", "morpho-blue"),
+    ("81ae8812-f04f-4f6e-9d71-ee5778f3a178", "morpho-blue"),
+];
+/// Longest raw `underlyingTokens` token read; a longer one is refused unread.
+pub const MAX_UNDERLYING_LEN: usize = 128;
 /// Highest plausible stablecoin lending APY, in percent. Above it the entry is refused
 /// `apy_implausible`: no lending market pays it, and a source that says so is wrong.
 pub const MAX_APY_PERCENT: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
@@ -42,11 +57,22 @@ pub enum Refusal {
     TvlInexact,
     TvlNegative,
     TvlImplausible,
+    PoolNotAllowlisted,
+    UnderlyingNotUsdc,
+    ApyBaseMissing,
+    ApyBaseNotNumber,
+    ApyBaseInexact,
+    ApyBaseNegative,
+    ApyBaseImplausible,
+    ApyRewardNotNumber,
+    ApyRewardInexact,
+    ApyRewardNegative,
+    ApyRewardImplausible,
     DuplicatePool,
 }
 
 impl Refusal {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 28] = [
         Self::PoolIdMissing,
         Self::PoolIdInvalid,
         Self::ProtocolMissing,
@@ -63,6 +89,17 @@ impl Refusal {
         Self::TvlInexact,
         Self::TvlNegative,
         Self::TvlImplausible,
+        Self::PoolNotAllowlisted,
+        Self::UnderlyingNotUsdc,
+        Self::ApyBaseMissing,
+        Self::ApyBaseNotNumber,
+        Self::ApyBaseInexact,
+        Self::ApyBaseNegative,
+        Self::ApyBaseImplausible,
+        Self::ApyRewardNotNumber,
+        Self::ApyRewardInexact,
+        Self::ApyRewardNegative,
+        Self::ApyRewardImplausible,
         Self::DuplicatePool,
     ];
 
@@ -84,6 +121,17 @@ impl Refusal {
             Self::TvlInexact => "tvl_inexact",
             Self::TvlNegative => "tvl_negative",
             Self::TvlImplausible => "tvl_implausible",
+            Self::PoolNotAllowlisted => "pool_not_allowlisted",
+            Self::UnderlyingNotUsdc => "underlying_not_usdc",
+            Self::ApyBaseMissing => "apy_base_missing",
+            Self::ApyBaseNotNumber => "apy_base_not_number",
+            Self::ApyBaseInexact => "apy_base_inexact",
+            Self::ApyBaseNegative => "apy_base_negative",
+            Self::ApyBaseImplausible => "apy_base_implausible",
+            Self::ApyRewardNotNumber => "apy_reward_not_number",
+            Self::ApyRewardInexact => "apy_reward_inexact",
+            Self::ApyRewardNegative => "apy_reward_negative",
+            Self::ApyRewardImplausible => "apy_reward_implausible",
             Self::DuplicatePool => "duplicate_pool",
         }
     }
@@ -96,8 +144,12 @@ pub struct Market {
     pub chain: &'static str,
     pub protocol: &'static str,
     pub symbol: String,
-    /// Percent per year, exact.
+    /// Percent per year, exact: the source's total, base plus reward.
     pub apy: Decimal,
+    /// The lending rate alone, percent per year: what the spike check reads and plans use.
+    pub apy_base: Decimal,
+    /// Incentives on top (token rewards), when the source reports them; never planned from.
+    pub apy_reward: Option<Decimal>,
     pub tvl_usd: Decimal,
 }
 
@@ -110,19 +162,48 @@ pub struct RawEntry<'a> {
     pub protocol: Option<&'a str>,
     pub symbol: Option<&'a str>,
     pub apy: Option<&'a str>,
+    pub apy_base: Option<&'a str>,
+    pub apy_reward: Option<&'a str>,
     pub tvl_usd: Option<&'a str>,
+    /// The raw JSON token of `underlyingTokens`.
+    pub underlying: Option<&'a str>,
 }
 
-/// Is this entry one M1 tracks? Chain, protocol and asset are matched exactly against the
-/// allowlist; everything else in the source is ignored, not refused.
-pub fn selected(raw: &RawEntry<'_>) -> Option<&'static str> {
-    if raw.chain != Some(CHAIN) {
+/// Is this entry read at all? A pinned pool id always is; so is a Base entry of an
+/// allowlisted project whose symbol ends in [`ASSET`], to be refused by name unless pinned.
+/// Everything else in the source is ignored, not refused.
+pub fn selected(raw: &RawEntry<'_>) -> bool {
+    if raw
+        .pool_id
+        .is_some_and(|id| ALLOWLIST.iter().any(|(p, _)| *p == id))
+    {
+        return true;
+    }
+    raw.chain == Some(CHAIN)
+        && PROTOCOLS.iter().any(|p| raw.protocol == Some(*p))
+        && raw
+            .symbol
+            .is_some_and(|s| s.to_ascii_uppercase().ends_with(ASSET))
+}
+
+/// The protocol a pool is pinned to, if it is pinned on [`CHAIN`] under that protocol.
+fn pinned(pool_id: &str, chain: &str, protocol: &str) -> Option<&'static str> {
+    if chain != CHAIN {
         return None;
     }
-    let protocol = PROTOCOLS.into_iter().find(|p| raw.protocol == Some(*p))?;
-    raw.symbol
-        .filter(|s| s.to_ascii_uppercase().ends_with(ASSET))
-        .map(|_| protocol)
+    ALLOWLIST
+        .iter()
+        .find(|(id, p)| *id == pool_id && *p == protocol) // LIMIT(pool-allowlist)
+        .map(|(_, p)| *p)
+}
+
+/// `underlyingTokens` is exactly `[USDC_BASE]`, compared without case.
+fn underlying_is_usdc(token: Option<&str>) -> bool {
+    let Some(token) = token.filter(|t| t.len() <= MAX_UNDERLYING_LEN) else {
+        return false;
+    };
+    serde_json::from_str::<[std::borrow::Cow<'_, str>; 1]>(token)
+        .is_ok_and(|[t]| t.eq_ignore_ascii_case(USDC_BASE)) // LIMIT(underlying-usdc)
 }
 
 fn pool_id_ok(id: &str) -> bool {
@@ -165,8 +246,8 @@ pub fn validate(raw: &RawEntry<'_>) -> Result<Market, Refusal> {
     if !pool_id_ok(pool_id) {
         return Err(Refusal::PoolIdInvalid);
     }
-    raw.chain.ok_or(Refusal::ChainMissing)?;
-    let protocol = selected(raw).ok_or(Refusal::ProtocolMissing)?;
+    let chain = raw.chain.ok_or(Refusal::ChainMissing)?;
+    let protocol = raw.protocol.ok_or(Refusal::ProtocolMissing)?;
     let symbol = raw.symbol.ok_or(Refusal::SymbolMissing)?;
     if !symbol_ok(symbol) {
         return Err(Refusal::SymbolInvalid);
@@ -193,12 +274,45 @@ pub fn validate(raw: &RawEntry<'_>) -> Result<Market, Refusal> {
         ],
         MAX_TVL_USD,
     )?;
+    let protocol = pinned(pool_id, chain, protocol).ok_or(Refusal::PoolNotAllowlisted)?;
+    if !underlying_is_usdc(raw.underlying) {
+        return Err(Refusal::UnderlyingNotUsdc);
+    }
+    let apy_base = number(
+        raw.apy_base,
+        [
+            Refusal::ApyBaseMissing,
+            Refusal::ApyBaseNotNumber,
+            Refusal::ApyBaseInexact,
+            Refusal::ApyBaseNegative,
+            Refusal::ApyBaseImplausible,
+        ],
+        MAX_APY_PERCENT,
+    )?;
+    let apy_reward = raw
+        .apy_reward
+        .map(|r| {
+            number(
+                Some(r),
+                [
+                    Refusal::ApyRewardNotNumber,
+                    Refusal::ApyRewardNotNumber,
+                    Refusal::ApyRewardInexact,
+                    Refusal::ApyRewardNegative,
+                    Refusal::ApyRewardImplausible,
+                ],
+                MAX_APY_PERCENT,
+            )
+        })
+        .transpose()?;
     Ok(Market {
         pool_id: pool_id.to_owned(),
         chain: CHAIN,
         protocol,
         symbol: symbol.to_owned(),
         apy,
+        apy_base,
+        apy_reward,
         tvl_usd,
     })
 }
@@ -214,7 +328,10 @@ mod tests {
             protocol: Some("aave-v3"),
             symbol: Some("USDC"),
             apy: Some("4.21"),
+            apy_base: Some("4.21"),
+            apy_reward: None,
             tvl_usd: Some("123456789"),
+            underlying: Some("[\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\"]"),
         }
     }
 
@@ -369,12 +486,13 @@ mod tests {
             })
             .is_ok()
         );
-        assert!(
+        assert_eq!(
             validate(&RawEntry {
                 pool_id: Some(&"a".repeat(MAX_ID_LEN)),
                 ..good()
-            })
-            .is_ok()
+            }),
+            Err(Refusal::PoolNotAllowlisted),
+            "a valid id, if not a pinned one"
         );
         assert_eq!(
             validate(&RawEntry {
@@ -387,41 +505,128 @@ mod tests {
 
     #[test]
     fn selection_matches_the_allowlist_exactly() {
-        assert_eq!(selected(&good()), Some("aave-v3"));
-        assert_eq!(
-            selected(&RawEntry {
-                chain: Some("base"),
-                ..good()
-            }),
-            None
-        );
-        assert_eq!(
+        let unpinned = RawEntry {
+            pool_id: Some("aaaaaaaa-0000-0000-0000-000000000001"),
+            ..good()
+        };
+        assert!(selected(&good()));
+        assert!(
             selected(&RawEntry {
                 chain: Some("Ethereum"),
                 ..good()
             }),
-            None
+            "a pinned pool is always read, to be refused by name if it moved"
         );
-        assert_eq!(
-            selected(&RawEntry {
+        assert!(selected(&unpinned));
+        assert!(selected(&RawEntry {
+            symbol: Some("steakUSDC"),
+            ..unpinned
+        }));
+        for other in [
+            RawEntry {
+                chain: Some("base"),
+                ..unpinned
+            },
+            RawEntry {
+                chain: Some("Ethereum"),
+                ..unpinned
+            },
+            RawEntry {
                 protocol: Some("aave-v3x"),
-                ..good()
-            }),
-            None
-        );
-        assert_eq!(
-            selected(&RawEntry {
+                ..unpinned
+            },
+            RawEntry {
                 symbol: Some("WETH"),
-                ..good()
-            }),
-            None
-        );
+                ..unpinned
+            },
+        ] {
+            assert!(!selected(&other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_pinned_pool_of_exactly_usdc_is_kept() {
+        assert_eq!(validate(&good()).map(|m| m.protocol), Ok("aave-v3"));
+        for (raw, want) in [
+            (
+                RawEntry {
+                    pool_id: Some("aaaaaaaa-0000-0000-0000-000000000001"),
+                    ..good()
+                },
+                Refusal::PoolNotAllowlisted,
+            ),
+            (
+                RawEntry {
+                    protocol: Some("morpho-blue"),
+                    ..good()
+                },
+                Refusal::PoolNotAllowlisted,
+            ),
+            (
+                RawEntry {
+                    chain: Some("Ethereum"),
+                    ..good()
+                },
+                Refusal::PoolNotAllowlisted,
+            ),
+            (
+                RawEntry {
+                    underlying: Some("[\"0x660975730059246A68521a3e2FBD4740173100f5\"]"),
+                    ..good()
+                },
+                Refusal::UnderlyingNotUsdc,
+            ),
+            (
+                RawEntry {
+                    underlying: None,
+                    ..good()
+                },
+                Refusal::UnderlyingNotUsdc,
+            ),
+            (
+                RawEntry {
+                    apy_base: None,
+                    ..good()
+                },
+                Refusal::ApyBaseMissing,
+            ),
+            (
+                RawEntry {
+                    apy_base: Some("100.01"),
+                    ..good()
+                },
+                Refusal::ApyBaseImplausible,
+            ),
+            (
+                RawEntry {
+                    apy_reward: Some("-1"),
+                    ..good()
+                },
+                Refusal::ApyRewardNegative,
+            ),
+            (
+                RawEntry {
+                    apy_reward: Some("\"1\""),
+                    ..good()
+                },
+                Refusal::ApyRewardNotNumber,
+            ),
+        ] {
+            assert_eq!(validate(&raw), Err(want), "{raw:?}");
+        }
+        let with_reward = validate(&RawEntry {
+            apy: Some("5"),
+            apy_base: Some("4"),
+            apy_reward: Some("1"),
+            ..good()
+        })
+        .unwrap();
         assert_eq!(
-            selected(&RawEntry {
-                symbol: Some("steakUSDC"),
-                ..good()
-            }),
-            Some("aave-v3")
+            (
+                with_reward.apy_base.to_string(),
+                with_reward.apy_reward.map(|r| r.to_string())
+            ),
+            ("4".to_owned(), Some("1".to_owned()))
         );
     }
 
