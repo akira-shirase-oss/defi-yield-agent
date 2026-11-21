@@ -1,0 +1,19 @@
+{"status":"success","data":[
+{"pool":"7e0661bf-8cf3-45e6-9424-31916d4c7b84","chain":"Base","project":"aave-v3","symbol":"USDC","apy":4.5,"apyBase":4.5,"apyReward":null,"tvlUsd":1000000,"underlyingTokens":["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"]},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000002","chain":"Base","project":"aave-v3","symbol":"USDC","apy":448575.06523,"tvlUsd":1000000},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000003","chain":"Base","project":"compound-v3","symbol":"USDC","apy":-2.5,"tvlUsd":1000000},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000004","chain":"Base","project":"compound-v3","symbol":"USDC","apy":"4.5","tvlUsd":1000000},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000005","chain":"Base","project":"morpho-blue","symbol":"STEAKUSDC","apy":null,"tvlUsd":1000000},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000006","chain":"Base","project":"morpho-blue","symbol":"STEAKUSDC","apy":5,"tvlUsd":1e13},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000007","chain":"Base","project":"morpho-blue","symbol":"STEAKUSDC","apy":5,"tvlUsd":-1},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000008","chain":"Base","project":"morpho-blue","symbol":"STEAKUSDC","apy":0.0000000000000000000000000000001,"tvlUsd":5},
+{"pool":"<img src=x onerror=alert(1)>","chain":"Base","project":"aave-v3","symbol":"USDC","apy":4,"tvlUsd":5},
+{"pool":"aaaaaaaa-0000-0000-0000-000000000009","chain":"Base","project":"aave-v3","symbol":"<b>USDC","apy":4,"tvlUsd":5},
+{"chain":"Base","project":"aave-v3","symbol":"USDC","apy":4,"tvlUsd":5},
+{"pool":"aaaaaaaa-0000-0000-0000-00000000000a","chain":"Base","project":"aave-v3","symbol":"USDC","apy":4},
+{"pool":"0c8567f8-ba5b-41ad-80de-00a71895eb19","chain":"Base","project":"compound-v3","symbol":"USDC","apy":3,"apyBase":3,"tvlUsd":5,"underlyingTokens":["0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"]},
+{"pool":"0c8567f8-ba5b-41ad-80de-00a71895eb19","chain":"Base","project":"compound-v3","symbol":"USDC","apy":30,"apyBase":30,"tvlUsd":5,"underlyingTokens":["0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"]},
+{"pool":"aaaaaaaa-0000-0000-0000-00000000000c","chain":"Ethereum","project":"aave-v3","symbol":"USDC","apy":999999,"tvlUsd":-5},
+{"pool":"aaaaaaaa-0000-0000-0000-00000000000d","chain":"Base","project":"evil-fork","symbol":"USDC","apy":99,"tvlUsd":5},
+{"pool":12345,"chain":"Base","project":"aave-v3","symbol":"USDC","apy":4,"tvlUsd":5}
+]}

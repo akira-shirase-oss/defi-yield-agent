@@ -1,0 +1,35 @@
+[package]
+name = "yieldagent-data"
+description = "Market data: the pool source port, the DefiLlama parser and the validation every field passes. No database, no wallet, no keys."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# The recorded source adapter (tests, the load harness).
+test-support = []
+
+[dependencies]
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client"] }
+hyper-util.workspace = true
+rust_decimal.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+webpki-roots.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+yieldagent-data = { path = ".", features = ["test-support"] }
+
+[lints]
+workspace = true

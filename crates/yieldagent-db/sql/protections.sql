@@ -14,7 +14,11 @@ WITH expected_triggers (tbl, name, digest) AS (
     -- The events, timing, level and function of each trigger.
     VALUES ('account_events', 'account_events_append_only', 'bd4b64bf88a43d91c8f0229e240a55e1'),
            ('account_events', 'account_events_no_truncate', '91d454c7d8890d590a6e8305d980409e'),
-           ('account_events', 'account_events_stamp', '0558d12b98ccd7beaf941f03835399de')
+           ('account_events', 'account_events_stamp', '0558d12b98ccd7beaf941f03835399de'),
+           ('market_rounds', 'market_rounds_append_only', '26d25aacd72b03a7d45cc85da48273a3'),
+           ('market_rounds', 'market_rounds_no_truncate', '610ccb9a21c99ed3005cf3b30d244983'),
+           ('market_snapshots', 'market_snapshots_append_only', 'f3468517477d48949061ab52bfdce7c5'),
+           ('market_snapshots', 'market_snapshots_no_truncate', 'a8a64393a0e341d6d8e0441de5f97cce')
 ), expected_functions (name, digest) AS (
     -- The whole definition, body and settings included.
     VALUES ('refuse_change', 'aa7b64a277372e0a3e2126f016e3a79d'),
@@ -26,6 +30,8 @@ WITH expected_triggers (tbl, name, digest) AS (
            ('api_tokens', 'DELETE,INSERT,SELECT,UPDATE'),
            ('email_tokens', 'DELETE,INSERT,SELECT,UPDATE'),
            ('invites', 'DELETE,INSERT,SELECT,UPDATE'),
+           ('market_rounds', 'INSERT,SELECT'),
+           ('market_snapshots', 'INSERT,SELECT'),
            ('members', 'DELETE,INSERT,SELECT,UPDATE'),
            ('sessions', 'DELETE,INSERT,SELECT,UPDATE'),
            ('sign_in_trust', 'DELETE,INSERT,SELECT,UPDATE'),

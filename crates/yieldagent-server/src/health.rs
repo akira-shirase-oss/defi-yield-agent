@@ -4,7 +4,8 @@
 //! - `GET /livez`: the process answers. Never touches a dependency and is never shed, so
 //!   a supervisor does not restart a busy but healthy server.
 //! - `GET /readyz`: should this server get traffic? The database is probed with a deadline;
-//!   unreachable or slow is reported as such (503), never as green. One probe runs at a time
+//!   unreachable or slow is reported as such (503), never as green; a market data worker
+//!   that has stopped (returned or panicked) is unready too. One probe runs at a time
 //!   and its answer is reused for a second, so a flood of probes cannot crowd the pool.
 //! - `GET /errorz`: 503 when server errors over the last five minutes exceed the threshold,
 //!   so Service Monitor can alert on an error rate from outside, as a customer would.
@@ -20,6 +21,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 use yieldagent_http::stack::ErrorWindow;
 
 /// How long one probe's answer is reused.
@@ -34,6 +36,7 @@ pub struct Health {
     errors: Arc<ErrorWindow>,
     permille: u64,
     min_requests: u64,
+    worker: Option<CancellationToken>,
 }
 
 /// One probe's outcome.
@@ -63,7 +66,16 @@ impl Health {
             errors,
             permille,
             min_requests,
+            worker: None,
         }
+    }
+
+    /// Readiness also requires the market data worker: `stopped` is cancelled when its task
+    /// ends for any reason (return or panic).
+    #[must_use]
+    pub fn watch_worker(mut self, stopped: CancellationToken) -> Self {
+        self.worker = Some(stopped);
+        self
     }
 
     async fn probe(&self) -> Probe {
@@ -92,8 +104,24 @@ pub async fn livez() -> Json<serde_json::Value> {
 
 /// `GET /readyz`.
 pub async fn readyz(State(health): State<Health>) -> Response {
+    let worker = match &health.worker {
+        None => "off",
+        Some(stopped) if stopped.is_cancelled() => "stopped",
+        Some(_) => "running",
+    };
     match health.probe().await {
-        Probe::Ok => Json(json!({ "status": "ready", "database": "ok" })).into_response(),
+        Probe::Ok if worker == "stopped" => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "status": "unready",
+                "database": "ok",
+                "market_worker": worker,
+                "error": { "code": "unready", "message": "the market data worker has stopped" },
+            })),
+        )
+            .into_response(),
+        Probe::Ok => Json(json!({ "status": "ready", "database": "ok", "market_worker": worker }))
+            .into_response(),
         failed => {
             let database = if failed == Probe::Timeout {
                 "timeout"
@@ -105,6 +133,7 @@ pub async fn readyz(State(health): State<Health>) -> Response {
                 Json(json!({
                     "status": "unready",
                     "database": database,
+                    "market_worker": worker,
                     "error": { "code": "unready", "message": "the database is not answering" },
                 })),
             )

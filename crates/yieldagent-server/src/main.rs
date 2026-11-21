@@ -117,12 +117,38 @@ async fn run(config: Config) -> Result<Drained, Stop> {
     };
     let accounts = Accounts::new(pool.clone(), config.accounts.clone(), mail).await?;
     let errors = Arc::new(ErrorWindow::default());
-    let health = Health::new(
+    let worker_stopped = tokio_util::sync::CancellationToken::new();
+    let mut health = Health::new(
         pool.clone(),
         config.ready_timeout,
         errors.clone(),
         config.error_rate_permille,
         config.error_min_requests,
+    );
+    if config.defillama.is_some() {
+        health = health.watch_worker(worker_stopped.clone());
+    }
+    let board = Arc::new(yieldagent_markets::Board::default());
+    match tokio::time::timeout(config.startup_timeout, board.load(&pool)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(Stop::Failed(anyhow::anyhow!(yieldagent_db::chain(&e)))),
+        Err(_) => {
+            return Err(Stop::Failed(anyhow::anyhow!(
+                "loading the market board passed the startup timeout"
+            )));
+        }
+    }
+    let markets = yieldagent_markets::routes::Markets {
+        board: board.clone(),
+        pool: pool.clone(),
+        max_age: time::Duration::try_from(config.snapshot_max_age)?,
+    };
+    let tasks = spawn_market_worker(
+        &config,
+        pool.clone(),
+        board,
+        shutdown.clone(),
+        worker_stopped,
     );
     let router = app(AppState {
         accounts,
@@ -130,6 +156,7 @@ async fn run(config: Config) -> Result<Drained, Stop> {
         errors,
         stack: config.stack,
         max_in_flight: config.max_in_flight,
+        markets,
     });
     let listener = TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %listener.local_addr()?, version = env!("CARGO_PKG_VERSION"), "listening");
@@ -137,6 +164,57 @@ async fn run(config: Config) -> Result<Drained, Stop> {
     if let Ok(name) = signal.await {
         tracing::info!(signal = name, "drained after signal");
     }
+    tasks.close();
+    if tokio::time::timeout(std::time::Duration::from_secs(5), tasks.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("market data worker still running at exit");
+    }
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), pool.close()).await;
     Ok(drained)
+}
+
+/// Starts the market data worker when a source is configured, tracked so its exit is
+/// logged and awaited; `stopped` is cancelled when it ends, for `/readyz`.
+fn spawn_market_worker(
+    config: &Config,
+    pool: sqlx::PgPool,
+    board: Arc<yieldagent_markets::Board>,
+    shutdown: tokio_util::sync::CancellationToken,
+    worker_stopped: tokio_util::sync::CancellationToken,
+) -> tokio_util::task::TaskTracker {
+    let tasks = tokio_util::task::TaskTracker::new();
+    if let Some(target) = config.defillama.clone() {
+        let source = yieldagent_data::live::LiveSource::new(
+            yieldagent_data::defillama::SOURCE,
+            target,
+            config.fetch_timeout,
+            config.source_max_body,
+        );
+        let ports = yieldagent_markets::worker::Ports {
+            source: Arc::new(source),
+            chain: Arc::new(yieldagent_data::screen::NoChainReads),
+        };
+        let settings = yieldagent_markets::worker::Settings {
+            interval: config.fetch_interval,
+            fetch_deadline: config.fetch_timeout + std::time::Duration::from_secs(1),
+            ..yieldagent_markets::worker::Settings::default()
+        };
+        let worker =
+            yieldagent_markets::worker::run(pool, board, ports, settings, shutdown.clone());
+        let stopping = shutdown;
+        tasks.spawn(async move {
+            let _stopped = worker_stopped.drop_guard();
+            worker.await;
+            if stopping.is_cancelled() {
+                tracing::info!("market data worker stopped for shutdown");
+            } else {
+                tracing::error!("market data worker stopped before shutdown");
+            }
+        });
+    } else {
+        tracing::warn!("YIELDAGENT_DEFILLAMA_URL is empty: the market data worker is off");
+    }
+    tasks
 }
